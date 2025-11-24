@@ -18,28 +18,28 @@ This project aims to build a Natural Language Inference (NLI) system for matchin
 
 The `cli.py` imports 9 modules that don't exist:
 
-```24:32:src/dsm5_nli/cli.py
-from dsm5_nli.data.preprocessing import load_and_preprocess_data
-from dsm5_nli.data.dataset import DSM5NLIDataset, create_dataloaders
-from dsm5_nli.models.bert_classifier import BERTClassifier
-from dsm5_nli.training.kfold import create_kfold_splits, get_fold_statistics, display_fold_statistics
-from dsm5_nli.training.trainer import Trainer, create_optimizer_and_scheduler
-from dsm5_nli.evaluation.evaluator import Evaluator, evaluate_per_criterion, display_per_criterion_results
-from dsm5_nli.utils.reproducibility import set_seed, enable_deterministic, get_device, verify_cuda_setup
-from dsm5_nli.utils.mlflow_setup import setup_mlflow, log_config, start_run
-from dsm5_nli.utils.visualization import print_header, print_config_summary, print_fold_summary
+```24:32:src/Project/cli.py
+from Project.data.preprocessing import load_and_preprocess_data
+from Project.data.dataset import DSM5NLIDataset, create_dataloaders
+from Project.models.bert_classifier import BERTClassifier
+from Project.training.kfold import create_kfold_splits, get_fold_statistics, display_fold_statistics
+from Project.training.trainer import Trainer, create_optimizer_and_scheduler
+from Project.evaluation.evaluator import Evaluator, evaluate_per_criterion, display_per_criterion_results
+from Project.utils.reproducibility import set_seed, enable_deterministic, get_device, verify_cuda_setup
+from Project.utils.mlflow_setup import setup_mlflow, log_config, start_run
+from Project.utils.visualization import print_header, print_config_summary, print_fold_summary
 ```
 
 **Missing modules:**
-- `src/dsm5_nli/data/preprocessing.py`
-- `src/dsm5_nli/data/dataset.py`
-- `src/dsm5_nli/models/bert_classifier.py`
-- `src/dsm5_nli/training/kfold.py`
-- `src/dsm5_nli/training/trainer.py`
-- `src/dsm5_nli/evaluation/evaluator.py`
-- `src/dsm5_nli/utils/reproducibility.py`
-- `src/dsm5_nli/utils/mlflow_setup.py`
-- `src/dsm5_nli/utils/visualization.py`
+- `src/Project/data/preprocessing.py`
+- `src/Project/data/dataset.py`
+- `src/Project/models/bert_classifier.py`
+- `src/Project/training/kfold.py`
+- `src/Project/training/trainer.py`
+- `src/Project/evaluation/evaluator.py`
+- `src/Project/utils/reproducibility.py`
+- `src/Project/utils/mlflow_setup.py`
+- `src/Project/utils/visualization.py`
 
 **Impact:** Project cannot run. All CLI commands will fail with `ModuleNotFoundError`.
 
@@ -49,15 +49,15 @@ from dsm5_nli.utils.visualization import print_header, print_config_summary, pri
 
 ### 1.2 Missing Package Structure
 
-The `dsm5_nli` package lacks `__init__.py` files:
+The `Project` package lacks `__init__.py` files:
 
 **Missing:**
-- `src/dsm5_nli/__init__.py`
-- `src/dsm5_nli/data/__init__.py`
-- `src/dsm5_nli/models/__init__.py`
-- `src/dsm5_nli/training/__init__.py`
-- `src/dsm5_nli/evaluation/__init__.py`
-- `src/dsm5_nli/utils/__init__.py`
+- `src/Project/__init__.py`
+- `src/Project/data/__init__.py`
+- `src/Project/models/__init__.py`
+- `src/Project/training/__init__.py`
+- `src/Project/evaluation/__init__.py`
+- `src/Project/utils/__init__.py`
 
 **Impact:** Python won't recognize these as packages, imports will fail.
 
@@ -96,7 +96,7 @@ dependencies = [
 
 The `eval` command is not implemented:
 
-```421:422:src/dsm5_nli/cli.py
+```421:422:src/Project/cli.py
 elif args.command == "eval":
     console.print("[yellow]⚠[/yellow] Evaluation command not yet implemented")
 ```
@@ -111,7 +111,7 @@ elif args.command == "eval":
 
 ### 2.1 Unused Imports
 
-```11:12:src/dsm5_nli/cli.py
+```11:12:src/Project/cli.py
 import sys
 from pathlib import Path
 ```
@@ -124,7 +124,7 @@ These imports are never used in the code.
 
 ### 2.2 Unused Import: OmegaConf
 
-```15:15:src/dsm5_nli/cli.py
+```15:15:src/Project/cli.py
 from omegaconf import DictConfig, OmegaConf
 ```
 
@@ -283,7 +283,7 @@ No validation for:
 
 **1. Dual Codebase Structure:**
 - `src/Project/SubProject/` - Generic template
-- `src/dsm5_nli/` - Specific implementation
+- `src/Project/` - Specific implementation
 
 This creates confusion. The template code isn't used by the main CLI.
 
@@ -406,9 +406,9 @@ Consider making some dependencies optional:
 
 1. **Create package structure:**
    ```bash
-   mkdir -p src/dsm5_nli/{data,models,training,evaluation,utils}
-   touch src/dsm5_nli/__init__.py
-   touch src/dsm5_nli/{data,models,training,evaluation,utils}/__init__.py
+   mkdir -p src/Project/{data,models,training,evaluation,utils}
+   touch src/Project/__init__.py
+   touch src/Project/{data,models,training,evaluation,utils}/__init__.py
    ```
 
 2. **Update pyproject.toml:**

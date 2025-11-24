@@ -1,0 +1,37 @@
+# ============================================================================
+# PsychBERT Model Architecture Configuration
+# ============================================================================
+# PsychBERT: Psychology domain-adapted BERT
+# Pretrained on psychology research papers and clinical psychology literature
+# ============================================================================
+
+# model_name: HuggingFace model identifier
+#   - mnaylor/psychbert-cased (12-layer, 768-hidden)
+#   - Domain adaptation: Continued pretraining on psychology corpora
+#   - Trained on PsycINFO abstracts, psychology textbooks, clinical papers
+#   - Better understanding of psychological terminology and constructs
+#   - Uses cased tokenization (preserves capitalization)
+#   - Uses standard BERT architecture with token_type_ids
+model_name: mnaylor/psychbert-cased
+
+# num_labels: Number of output classes for classification head
+#   - Default: 2 (binary classification: match vs no-match)
+num_labels: 2
+
+# dropout: Dropout probability for classification head
+#   - Default: 0.1 (10% dropout rate)
+#   - Psychology domain doesn't require different dropout
+dropout: 0.1
+
+# freeze_bert: Whether to freeze encoder weights during training
+#   - false: Fine-tune all layers (recommended)
+#   - Domain-adapted model still benefits from task-specific fine-tuning
+freeze_bert: false
+
+# requires_flax: Model requires Flax/Jax for loading from checkpoint
+#   - true: Model checkpoint is in Flax format, requires jax/flax installed
+#   - Install: pip install jax jaxlib flax
+#   - Load with: AutoModel.from_pretrained(..., from_flax=True)
+#   - NOTE: Current implementation doesn't support from_flax parameter
+#   - Use MentalBERT as alternative mental health domain model
+requires_flax: true

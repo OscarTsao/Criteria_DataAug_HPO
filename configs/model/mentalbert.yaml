@@ -1,0 +1,34 @@
+# ============================================================================
+# MentalBERT Model Architecture Configuration
+# ============================================================================
+# MentalBERT: Mental health domain-adapted BERT
+# Pretrained on mental health forums, clinical notes, and psychology literature
+# ============================================================================
+
+# model_name: HuggingFace model identifier
+#   - mental/mental-bert-base-uncased (12-layer, 768-hidden)
+#   - Domain adaptation: Continued pretraining on mental health text
+#   - Trained on Reddit mental health forums, counseling transcripts
+#   - Better understanding of mental health terminology and context
+#   - May be gated model (requires HuggingFace login/approval)
+#   - Uses standard BERT architecture with token_type_ids
+model_name: mental/mental-bert-base-uncased
+
+# num_labels: Number of output classes for classification head
+#   - Default: 2 (binary classification: match vs no-match)
+num_labels: 2
+
+# dropout: Dropout probability for classification head
+#   - Default: 0.1 (10% dropout rate)
+#   - Mental health domain doesn't require different dropout
+dropout: 0.1
+
+# freeze_bert: Whether to freeze encoder weights during training
+#   - false: Fine-tune all layers (recommended)
+#   - Domain-adapted model still benefits from task-specific fine-tuning
+freeze_bert: false
+
+# is_gated: Whether this model requires authentication
+#   - true: May need HuggingFace token with model access approval
+#   - Set HF_TOKEN environment variable if needed
+is_gated: true

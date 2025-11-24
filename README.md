@@ -35,14 +35,17 @@ Hydra drives all CLI commands via `configs/config.yaml`. Examples:
 
 ```bash
 # K-fold training (default: 5 folds)
-python -m Project.cli command=train
+python -m dsm5_nli.cli command=train
 
 # Evaluate a saved fold checkpoint
-python -m Project.cli command=eval fold=0
+python -m dsm5_nli.cli command=eval fold=0
 
 # Hyper-parameter search with Optuna
-python -m Project.cli command=hpo n_trials=20
+python -m dsm5_nli.cli command=hpo n_trials=20
 ```
+
+Training logs accuracy, F1, precision, recall, and AUC per fold and saves the best checkpoint for each
+fold to `outputs/<experiment>/checkpoints/fold_<n>_best.pt`.
 
 Key config knobs:
 
@@ -55,7 +58,8 @@ Key config knobs:
 - Format & lint: `ruff check src tests` and `black src tests`
 - Type check: `mypy src`
 - Tests: `pytest`
-- End-to-end smoke test: `python -m Project.cli command=train training.num_epochs=1`
+- End-to-end smoke test: `python -m dsm5_nli.cli command=train training.num_epochs=1`
+- Evaluate a trained fold: `python -m dsm5_nli.cli command=eval fold=0` (requires checkpoint under `outputs/<experiment>/checkpoints`)
 
 ## Outputs & Tracking
 
@@ -68,6 +72,6 @@ Key config knobs:
 ```
 configs/            # Hydra configs (root + model/training/hpo overrides)
 data/               # Groundtruth CSVs, DSM-5 metadata, legacy sources
-src/Project/        # CLI entrypoint, data pipeline, models, trainer, utils
+src/dsm5_nli/       # CLI entrypoint, data pipeline, models, trainer, utils
 tests/              # Pytest suite covering configs/models/datasets
 ```

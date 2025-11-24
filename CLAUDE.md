@@ -4,11 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-This is a DSM-5 criteria matching project using Natural Language Inference (NLI) with BERT-based models. The repository contains a template ML experiment framework built on PyTorch, Transformers, MLflow, and Optuna for hyperparameter optimization.
-
-**Two parallel codebases exist:**
-- `src/Project/SubProject/` - Generic ML experiment template (minimal)
-- `src/dsm5_nli/` - Specific DSM-5 NLI binary classification implementation
+This is a DSM-5 criteria matching project using Natural Language Inference (NLI) with BERT-based models. The repository now consolidates all active code in `src/Project/`, which contains the Hydra CLI plus data, model, training, evaluation, and utility modules built on PyTorch, Transformers, MLflow, and Optuna.
 
 ## Setup and Installation
 
@@ -23,17 +19,17 @@ pip install -e '.[dev]'
 
 ### DSM-5 NLI Training
 
-The main CLI is `src/dsm5_nli/cli.py` which uses Hydra for configuration management:
+The main CLI is `src/Project/cli.py` which uses Hydra for configuration management:
 
 ```bash
 # K-fold cross-validation training
-python -m dsm5_nli.cli train
+python -m Project.cli train
 
 # Hyperparameter optimization
-python -m dsm5_nli.cli hpo --n-trials 50
+python -m Project.cli hpo --n-trials 50
 
 # Evaluate specific fold
-python -m dsm5_nli.cli eval --fold 0
+python -m Project.cli eval --fold 0
 ```
 
 ### Development
@@ -58,12 +54,12 @@ Uses Hydra with composition pattern. Main config: `configs/config.yaml`
 
 **Override configs via CLI:**
 ```bash
-python -m dsm5_nli.cli train model.dropout=0.2 training.learning_rate=3e-5
+python -m Project.cli train model.dropout=0.2 training.learning_rate=3e-5
 ```
 
 ## Architecture
 
-### DSM-5 NLI Pipeline (src/dsm5_nli/)
+### DSM-5 NLI Pipeline (src/Project/)
 
 The CLI (`cli.py`) orchestrates the full training pipeline:
 
@@ -76,25 +72,6 @@ The CLI (`cli.py`) orchestrates the full training pipeline:
 7. **MLflow Logging** (`utils/mlflow_setup.py`) - Experiment tracking
 
 **Key workflow pattern:** Each fold runs as a separate MLflow run, with overall summary logged after K-fold completion.
-
-### Generic Template (src/Project/SubProject/)
-
-Minimal scaffold with:
-- `models/model.py` - Basic BERT classifier wrapper
-- `utils/mlflow_utils.py` - MLflow helpers (configure_mlflow, mlflow_run context manager)
-- `utils/log.py`, `utils/seed.py` - Logging and reproducibility utilities
-
-### MLflow Tracking
-
-All experiments logged to `mlruns/` (file-based storage). Configure via `configs/config.yaml`:
-
-```python
-from Project.SubProject.utils import configure_mlflow, mlflow_run
-
-configure_mlflow(tracking_uri="file:./mlruns", experiment="demo")
-with mlflow_run("run_name", tags={"stage": "dev"}):
-    # training code
-```
 
 ### Hyperparameter Optimization
 

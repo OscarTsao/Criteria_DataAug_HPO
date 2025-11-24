@@ -25,7 +25,14 @@ def _validate_required_columns(
 
 
 def load_and_preprocess_data(config) -> pd.DataFrame:
-    """Load and preprocess all data for DSM-5 NLI training."""
+    """Load and preprocess all data for DSM-5 NLI training.
+
+    Args:
+        config: Hydra configuration object
+
+    Returns:
+        DataFrame with columns: post_id, post, criterion_id, criterion, label
+    """
     console.print("\n[cyan]═══════════════════════════════════════════════════════════[/cyan]")
     console.print(
         "[cyan bold]               DATA LOADING & PREPROCESSING                 [/cyan bold]"
@@ -85,6 +92,7 @@ def load_and_preprocess_data(config) -> pd.DataFrame:
     console.print(f"  • Unique criteria: {pairs_df['criterion_id'].nunique():,}")
     console.print(f"  • Positive samples: {positive:,}")
     console.print(f"  • Negative samples: {negative:,}")
+
 
     console.print("\n[cyan]═══════════════════════════════════════════════════════════[/cyan]\n")
 

@@ -5,8 +5,8 @@
 # It combines model, training, and HPO configs into a unified configuration.
 #
 # Usage:
-#   python -m Project.cli train
-#   python -m Project.cli train model.dropout=0.2 training.learning_rate=3e-5
+#   python -m dsm5_nli.cli command=train
+#   python -m dsm5_nli.cli command=train model.dropout=0.2 training.learning_rate=3e-5
 #
 # Hydra allows runtime overrides of any parameter via CLI arguments.
 # ============================================================================
@@ -28,7 +28,7 @@ experiment_name: dsm5_criteria_matching
 
 # seed: Random seed for reproducibility
 #   - Controls all random operations (Python random, NumPy, PyTorch, Transformers)
-#   - Same seed + same config = identical results (with deterministic=true)
+#   - Same seed + same config = stable results (TF32 enabled by default)
 #   - Typical values: 42, 0, 2023
 seed: 42
 
@@ -39,6 +39,8 @@ seed: 42
 command: null
 # n_trials: default number of trials for HPO (can override via CLI or env)
 n_trials: 5000
+# fold: target fold for eval command
+fold: 0
 
 # ============================================================================
 # DATA CONFIGURATION
@@ -97,19 +99,14 @@ mlflow:
 # ============================================================================
 # REPRODUCIBILITY SETTINGS
 # ============================================================================
-# Controls for deterministic training and result replication
+# Controls for reproducible training and result replication
 reproducibility:
   # seed: Random seed (references ${seed} defined above)
   seed: ${seed}
 
-  # deterministic: Enable deterministic algorithms
-  #   - true: Exact same results every run (may be slower)
-  #   - false: Non-deterministic (faster but results vary slightly)
-  deterministic: false
-
-  # tf32: Enable TensorFloat-32 operations on RTX 5090
-  #   - true: 2-3x matmul speedup with minimal accuracy loss (recommended)
-  #   - false: Full FP32 precision (slower but slightly more accurate)
+  # tf32: Enable TensorFloat-32 operations on RTX 5090 (always enabled)
+  #   - true: 2-3x matmul speedup with minimal accuracy loss
+  #   - false: Standard FP32 operations
   #   - Only affects Ampere+ GPUs (RTX 30xx, 40xx, 50xx)
   #   - Trade-off: slight non-determinism for major speed gain
   tf32: true

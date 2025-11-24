@@ -2,7 +2,7 @@
 # Optuna Hyperparameter Optimization Configuration
 # ============================================================================
 # Defines HPO study settings, pruning strategy, and search space
-# Run via: python -m dsm5_nli.cli hpo --n-trials 50
+# Run via: python -m Project.cli command=hpo n_trials=5000
 # ============================================================================
 
 # ============================================================================
@@ -10,26 +10,30 @@
 # ============================================================================
 
 # n_trials: Number of hyperparameter combinations to evaluate
-#   - Default: 50 (balance exploration vs runtime)
+#   - Default: 5000 (long-form exploration)
 #   - Each trial runs abbreviated K-fold CV (3 epochs per fold)
 #   - Higher = better hyperparameters but longer runtime
-#   - Typical values: 20-100 for small search spaces
-n_trials: 50
+#   - Typical values: 20-100 for small search spaces; 5000 for exhaustive search
+n_trials: 5000
 
 # storage: Database backend for storing trial history
-#   - Default: sqlite:///optuna.db (local SQLite file)
+#   - PostgreSQL recommended for parallel HPO (better concurrency)
+#   - Format: postgresql://user:password@host:port/database
+#   - Override via CLI: hpo.storage=postgresql://user:pass@host:5432/optuna
+#   - Or use environment variables: ${oc.env:POSTGRES_URL}
 #   - Alternatives:
-#     * postgresql://user:pass@host/db (production, concurrent studies)
+#     * sqlite:///optuna.db (local SQLite file, limited concurrency) [default]
 #     * mysql://user:pass@host/db (production alternative)
 #   - Allows resuming interrupted HPO studies
 #   - Enables parallel optimization across multiple processes
-storage: sqlite:///optuna.db
+#   - Default: SQLite for ease of use; set OPTUNA_STORAGE to Postgres when available
+storage: ${oc.env:OPTUNA_STORAGE,sqlite:///optuna.db}
 
 # study_name: Unique identifier for this optimization study
 #   - Used to group related trials together
 #   - Can resume study with same name: load_if_exists=True
 #   - Best practice: descriptive name like "dsm5_bert_base_v1"
-study_name: dsm5_nli_hpo
+study_name: project_hpo
 
 # direction: Optimization direction for objective metric
 #   - maximize: For metrics like F1, accuracy, AUC (default)

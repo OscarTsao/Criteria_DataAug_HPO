@@ -57,21 +57,13 @@ optimization:
   #   - Requires Ampere+ GPU (RTX 30xx, 40xx, 50xx)
   use_bf16: true
 
-  # use_tf32: Enable TensorFloat-32 matrix operations
-  #   - true: 2-3x matmul speedup with minimal accuracy loss (recommended)
-  #   - false: Standard FP32 operations
-  #   - TF32 rounds FP32 to 10-bit mantissa (vs 23-bit) internally
-  #   - Only affects Ampere+ GPUs, ignored on older hardware
-  #   - Note: Introduces slight non-determinism even with seed set
-  use_tf32: true
-
   # use_torch_compile: Enable PyTorch 2.0+ JIT compilation
   #   - true: 10-20% speedup via graph optimization (recommended)
   #   - false: Eager execution mode
   #   - First epoch slow (compilation), subsequent epochs faster
   #   - Requires PyTorch 2.0+
   #   - May cause issues with dynamic shapes or custom ops
-  use_torch_compile: true
+  use_torch_compile: false
 
   # fused_adamw: Use fused AdamW optimizer kernel
   #   - true: 5-10% speedup by fusing optimizer ops (recommended)

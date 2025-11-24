@@ -8,6 +8,15 @@
 
 # Declare all targets as phony (not actual files)
 .PHONY: help setup train hpo eval clean test lint format
+.PHONY: train_bert train_roberta train_deberta train_modernbert train_mentalbert train_psychbert
+.PHONY: hpo_bert hpo_roberta hpo_deberta hpo_modernbert hpo_mentalbert hpo_psychbert
+
+# Default tracking backends (override via env if needed)
+MLFLOW_URI ?= sqlite:///mlflow.db
+OPTUNA_URI ?= sqlite:///optuna.db
+PYTHON ?= python3
+N_TRIALS ?= 5000
+EXTRA_ARGS ?=
 
 # ============================================================================
 # HELP - Display available targets and their descriptions
@@ -18,7 +27,7 @@ help:
 	@echo "Available targets:"
 	@echo "  setup    - Install dependencies and setup environment"
 	@echo "  train    - Run 5-fold cross-validation training"
-	@echo "  hpo      - Run hyperparameter optimization (50 trials)"
+	@echo "  hpo      - Run hyperparameter optimization (5000 trials)"
 	@echo "  eval     - Evaluate fold 0"
 	@echo "  clean    - Clean outputs, cache, and logs"
 	@echo "  test     - Run tests"
@@ -30,10 +39,10 @@ help:
 # ============================================================================
 # Upgrades pip and installs the package with development dependencies
 # Run this once after cloning the repository
-# Creates: .venv/lib/python3.10/site-packages/dsm5-nli.egg-link
+# Creates: .venv/lib/python3.10/site-packages/Project.egg-link
 setup:
-	python -m pip install --upgrade pip
-	pip install -e '.[dev]'  # Editable install with dev dependencies (pytest, ruff, black)
+	$(PYTHON) -m pip install --upgrade pip
+	$(PYTHON) -m pip install -e '.[dev]'  # Editable install with dev dependencies (pytest, ruff, black)
 	@echo "✓ Setup complete!"
 
 # ============================================================================
@@ -44,18 +53,53 @@ setup:
 # Runtime: ~30-60 minutes depending on GPU
 # Output: mlruns/, outputs/dsm5_criteria_matching/checkpoints/
 train:
-	python -m dsm5_nli.cli command=train
+	MLFLOW_TRACKING_URI=$(MLFLOW_URI) $(PYTHON) -m Project.cli command=train $(EXTRA_ARGS)
+
+train_bert:
+	MLFLOW_TRACKING_URI=$(MLFLOW_URI) $(PYTHON) -m Project.cli command=train model=bert_base $(EXTRA_ARGS)
+
+train_roberta:
+	MLFLOW_TRACKING_URI=$(MLFLOW_URI) $(PYTHON) -m Project.cli command=train model=roberta $(EXTRA_ARGS)
+
+train_deberta:
+	MLFLOW_TRACKING_URI=$(MLFLOW_URI) $(PYTHON) -m Project.cli command=train model=deberta_v3 $(EXTRA_ARGS)
+
+train_modernbert:
+	MLFLOW_TRACKING_URI=$(MLFLOW_URI) $(PYTHON) -m Project.cli command=train model=modernbert $(EXTRA_ARGS)
+
+train_mentalbert:
+	MLFLOW_TRACKING_URI=$(MLFLOW_URI) $(PYTHON) -m Project.cli command=train model=mentalbert $(EXTRA_ARGS)
+
+train_psychbert:
+	MLFLOW_TRACKING_URI=$(MLFLOW_URI) $(PYTHON) -m Project.cli command=train model=psychbert $(EXTRA_ARGS)
 
 # ============================================================================
 # HPO - Run hyperparameter optimization with Optuna
 # ============================================================================
-# Searches 50 hyperparameter combinations using Optuna
+# Searches 5000 hyperparameter combinations using Optuna
 # Each trial runs abbreviated 3-epoch K-fold CV
-# Results stored in optuna.db (SQLite) and MLflow
-# Runtime: ~2-4 hours for 50 trials
-# Output: optuna.db, mlruns/
+# Results stored in SQLite (Optuna) and MLflow by default
+# Override n_trials or storage URIs via env if needed
 hpo:
-	python -m dsm5_nli.cli command=hpo n_trials=50
+	MLFLOW_TRACKING_URI=$(MLFLOW_URI) OPTUNA_STORAGE=$(OPTUNA_URI) $(PYTHON) -m Project.cli command=hpo n_trials=$(N_TRIALS) $(EXTRA_ARGS)
+
+hpo_bert:
+	MLFLOW_TRACKING_URI=$(MLFLOW_URI) OPTUNA_STORAGE=$(OPTUNA_URI) $(PYTHON) -m Project.cli command=hpo n_trials=$(N_TRIALS) model=bert_base $(EXTRA_ARGS)
+
+hpo_roberta:
+	MLFLOW_TRACKING_URI=$(MLFLOW_URI) OPTUNA_STORAGE=$(OPTUNA_URI) $(PYTHON) -m Project.cli command=hpo n_trials=$(N_TRIALS) model=roberta $(EXTRA_ARGS)
+
+hpo_deberta:
+	MLFLOW_TRACKING_URI=$(MLFLOW_URI) OPTUNA_STORAGE=$(OPTUNA_URI) $(PYTHON) -m Project.cli command=hpo n_trials=$(N_TRIALS) model=deberta_v3 $(EXTRA_ARGS)
+
+hpo_modernbert:
+	MLFLOW_TRACKING_URI=$(MLFLOW_URI) OPTUNA_STORAGE=$(OPTUNA_URI) $(PYTHON) -m Project.cli command=hpo n_trials=$(N_TRIALS) model=modernbert $(EXTRA_ARGS)
+
+hpo_mentalbert:
+	MLFLOW_TRACKING_URI=$(MLFLOW_URI) OPTUNA_STORAGE=$(OPTUNA_URI) $(PYTHON) -m Project.cli command=hpo n_trials=$(N_TRIALS) model=mentalbert $(EXTRA_ARGS)
+
+hpo_psychbert:
+	MLFLOW_TRACKING_URI=$(MLFLOW_URI) OPTUNA_STORAGE=$(OPTUNA_URI) $(PYTHON) -m Project.cli command=hpo n_trials=$(N_TRIALS) model=psychbert $(EXTRA_ARGS)
 
 # ============================================================================
 # EVAL - Evaluate a specific fold (not yet implemented)
@@ -63,7 +107,7 @@ hpo:
 # Loads trained model from fold 0 and runs evaluation
 # Displays per-criterion metrics and aggregate performance
 eval:
-	python -m dsm5_nli.cli command=eval fold=0
+	MLFLOW_TRACKING_URI=$(MLFLOW_URI) $(PYTHON) -m Project.cli command=eval fold=0 $(EXTRA_ARGS)
 
 # ============================================================================
 # CLEAN - Remove all generated files, outputs, and cache
@@ -95,11 +139,11 @@ clean:
 # Generates HTML coverage report in htmlcov/
 # Flags:
 #   -v: Verbose output (show individual test results)
-#   --cov: Measure code coverage for src/dsm5_nli
+#   --cov: Measure code coverage for src/Project
 #   --cov-report=html: Generate HTML coverage report
 # Output: htmlcov/index.html (open in browser to view coverage)
 test:
-	pytest tests/ -v --cov=src/dsm5_nli --cov-report=html
+	pytest tests/ -v --cov=src/Project --cov-report=html
 
 # ============================================================================
 # LINT - Run code quality checks with ruff

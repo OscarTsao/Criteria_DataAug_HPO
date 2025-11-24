@@ -67,6 +67,7 @@ def sample_data():
     )
 
 
+<<<<<<< HEAD
 def skip_if_torch_unsafe_for_deberta():
     """Skip tests that require torch >= 2.6 for safe weight loading."""
     if TORCH_VERSION < TORCH_SAFE_LOAD_VERSION:
@@ -75,6 +76,8 @@ def skip_if_torch_unsafe_for_deberta():
         )
 
 
+=======
+>>>>>>> bfebc24 (Refactor: Consolidate codebase to Project module with multi-model support)
 # ============================================================================
 # Test 1: Configuration Loading Tests
 # ============================================================================
@@ -187,7 +190,10 @@ class TestModelInstantiation:
         assert roberta_model.uses_token_type_ids is False, "RoBERTa should not use token_type_ids"
 
         # DeBERTa SHOULD NOT have token_type_ids
+<<<<<<< HEAD
         skip_if_torch_unsafe_for_deberta()
+=======
+>>>>>>> bfebc24 (Refactor: Consolidate codebase to Project module with multi-model support)
         deberta_model = BERTClassifier("microsoft/deberta-v3-base", num_labels=2)
         assert (
             deberta_model.uses_token_type_ids is False
@@ -440,7 +446,10 @@ class TestModelOnlyLoading:
 
     def test_deberta_model_loads_successfully(self):
         """Test that DeBERTa-v3 model can be loaded even though tokenizer has issues."""
+<<<<<<< HEAD
         skip_if_torch_unsafe_for_deberta()
+=======
+>>>>>>> bfebc24 (Refactor: Consolidate codebase to Project module with multi-model support)
         # This demonstrates that our code works correctly
         # The tokenizer issue is a transformers library problem
         model = BERTClassifier(model_name="microsoft/deberta-v3-base", num_labels=2, dropout=0.1)
