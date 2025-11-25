@@ -97,6 +97,7 @@ class Trainer:
         mlflow_enabled=True,
         early_stopping_patience=None,
         checkpoint_dir=None,
+        positive_threshold: float = 0.5,
     ):
         """Initialize trainer."""
         self.model = model
@@ -113,6 +114,7 @@ class Trainer:
         self.checkpoint_dir = checkpoint_dir
         self.best_epoch = 0
         self.best_state_dict = None
+        self.positive_threshold = positive_threshold
 
         # Apply torch.compile if requested
         if use_compile and torch.cuda.is_available():
@@ -208,7 +210,12 @@ class Trainer:
             with torch.amp.autocast('cuda', enabled=self.use_bf16, dtype=torch.bfloat16):
                 outputs = self.model(**batch)
 
-            preds = torch.argmax(outputs["logits"], dim=-1)
+            logits = outputs["logits"]
+            if logits.shape[-1] == 1:
+                probs = torch.sigmoid(logits).squeeze(-1)
+                preds = (probs >= self.positive_threshold).long()
+            else:
+                preds = torch.argmax(logits, dim=-1)
             all_preds.extend(preds.cpu().numpy())
             all_labels.extend(batch["labels"].cpu().numpy())
 

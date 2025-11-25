@@ -27,10 +27,11 @@ def _format_metric(value):
 class Evaluator:
     """Evaluator for DSM-5 NLI model."""
 
-    def __init__(self, model, device, use_bf16=False):
+    def __init__(self, model, device, use_bf16=False, positive_threshold: float = 0.5):
         self.model = model
         self.device = device
         self.use_bf16 = use_bf16 and torch.cuda.is_available()
+        self.positive_threshold = positive_threshold
         self.model.to(self.device)
         self.model.eval()
 
@@ -46,12 +47,18 @@ class Evaluator:
                 outputs = self.model(**batch)
 
             logits = outputs["logits"].float()
-            probs = torch.softmax(logits, dim=-1).float()
-            preds = torch.argmax(logits, dim=-1)
+            if logits.shape[-1] == 1:
+                probs = torch.sigmoid(logits).squeeze(-1)
+                preds = (probs >= self.positive_threshold).long()
+                prob_vector = probs
+            else:
+                probs = torch.softmax(logits, dim=-1).float()
+                preds = torch.argmax(logits, dim=-1)
+                prob_vector = probs[:, 1]
 
             all_preds.extend(preds.cpu().numpy())
             all_labels.extend(batch["labels"].cpu().numpy())
-            all_probs.extend(probs[:, 1].cpu().numpy())
+            all_probs.extend(prob_vector.cpu().numpy())
 
         # Compute aggregate metrics
         try:

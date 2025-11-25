@@ -35,31 +35,34 @@ Hydra drives all CLI commands via `configs/config.yaml`. Examples:
 
 ```bash
 # K-fold training (100 epochs w/ patience 20, default: 5 folds)
-python -m dsm5_nli.cli command=train training.num_epochs=100 training.early_stopping_patience=20
+python -m Project.cli command=train training.num_epochs=100 training.early_stopping_patience=20
 
 # Evaluate a saved fold checkpoint
-python -m dsm5_nli.cli command=eval fold=0
+python -m Project.cli command=eval fold=0
 
-# Hyper-parameter search with Optuna (500 trials)
-python -m dsm5_nli.cli command=hpo n_trials=500
+# Hyper-parameter search with Optuna (LoRA/QLoRA + threshold tuning; defaults to 500 trials)
+python -m Project.cli command=hpo n_trials=500
 ```
 
 Training logs accuracy, F1, precision, recall, and AUC per fold and saves the best checkpoint for each
 fold to `outputs/<experiment>/checkpoints/fold_<n>_best.pt`.
 
-Key config knobs:
+Key config knobs (see `configs/hpo/pc_ce.yaml` for the HPO search space):
 
+- Model backbone: `BAAI/bge-reranker-v2-m3` (single supported reranker)
 - `data.groundtruth_csv` – location of the unified dataset
 - `data.criteria_json` – DSM-5 criterion metadata
 - `model.*`, `training.*`, `hpo.*` – composable overrides under `configs/`
+- HPO search space includes LoRA/QLoRA ranks/alphas/dropout, schedulers, warmup, batch/accum,
+  post-hoc threshold mode (per-class vs global), aggregation knobs, and loss variants.
 
 ## Development Workflow
 
 - Format & lint: `ruff check src tests` and `black src tests`
 - Type check: `mypy src`
 - Tests: `pytest`
-- End-to-end training check: `python -m dsm5_nli.cli command=train training.num_epochs=100 training.early_stopping_patience=20`
-- Evaluate a trained fold: `python -m dsm5_nli.cli command=eval fold=0` (requires checkpoint under `outputs/<experiment>/checkpoints`)
+- End-to-end training check: `python -m Project.cli command=train training.num_epochs=100 training.early_stopping_patience=20`
+- Evaluate a trained fold: `python -m Project.cli command=eval fold=0` (requires checkpoint under `outputs/<experiment>/checkpoints`)
 
 ## Outputs & Tracking
 
@@ -72,6 +75,6 @@ Key config knobs:
 ```
 configs/            # Hydra configs (root + model/training/hpo overrides)
 data/               # Groundtruth CSVs, DSM-5 metadata, legacy sources
-src/dsm5_nli/       # CLI entrypoint, data pipeline, models, trainer, utils
+src/Project/        # CLI entrypoint, data pipeline, models, trainer, utils
 tests/              # Pytest suite covering configs/models/datasets
 ```

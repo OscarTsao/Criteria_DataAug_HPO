@@ -5,17 +5,17 @@
 # It combines model, training, and HPO configs into a unified configuration.
 #
 # Usage:
-#   python -m dsm5_nli.cli command=train
-#   python -m dsm5_nli.cli command=train model.dropout=0.2 training.learning_rate=3e-5
+#   python -m Project.cli command=train
+#   python -m Project.cli command=train training.learning_rate=1e-5
 #
 # Hydra allows runtime overrides of any parameter via CLI arguments.
 # ============================================================================
 
 defaults:
-  - model: bert_base      # Model architecture config (bert_base.yaml)
+  - model: bge_reranker   # Model architecture config (bge_reranker.yaml)
   - training: default     # Training hyperparameters (default.yaml)
-  - hpo: optuna          # HPO search space (optuna.yaml)
-  - _self_               # This file's settings override the above
+  - hpo: pc_ce            # HPO search space (pc_ce.yaml)
+  - _self_                # This file's settings override the above
 
 # ============================================================================
 # EXPERIMENT SETTINGS
@@ -56,10 +56,14 @@ data:
   #   Format: {"criteria": [{"id": "A.1", "text": "..."}]}
   criteria_json: data/DSM5/MDD_Criteira.json
 
-  # max_length: Maximum sequence length for BERT tokenization
+  # sample_size: Optional row count for quick smoke tests (null = full dataset)
+  sample_size: null
+  # sample_seed: Deterministic sampling seed for reproducible subsets
+  sample_seed: ${seed}
+
+  # max_length: Maximum sequence length for tokenization
   #   - Sequences longer than this are truncated
   #   - Format: [CLS] post [SEP] criterion [SEP] with padding to max_length
-  #   - BERT max: 512 tokens (including special tokens)
   #   - Trade-off: longer = more context but slower training
   max_length: 512
 
@@ -86,10 +90,10 @@ kfold:
 # MLflow logs metrics, parameters, models, and artifacts for each run
 mlflow:
   # tracking_uri: Where to store MLflow data
-  #   - "sqlite:///mlflow.db" - Local SQLite DB (default, no server required)
+  #   - "file:mlruns" - Local file store (default, creates mlruns/ directory)
   #   - "postgresql://user:pass@host/db" - PostgreSQL backend
   #   - Override via env: export MLFLOW_TRACKING_URI=postgresql://...
-  tracking_uri: ${oc.env:MLFLOW_TRACKING_URI,sqlite:///mlflow.db}
+  tracking_uri: ${oc.env:MLFLOW_TRACKING_URI,file:mlruns}
 
   # experiment_name: MLflow experiment name (references ${experiment_name} above)
   #   - All runs from this config go under this experiment
@@ -103,6 +107,9 @@ mlflow:
 reproducibility:
   # seed: Random seed (references ${seed} defined above)
   seed: ${seed}
+
+  # deterministic: Enable deterministic algorithms (slightly slower but reproducible)
+  deterministic: false
 
   # tf32: Enable TensorFloat-32 operations on RTX 5090 (always enabled)
   #   - true: 2-3x matmul speedup with minimal accuracy loss

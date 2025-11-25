@@ -32,7 +32,7 @@ storage: ${oc.env:OPTUNA_STORAGE,sqlite:///optuna.db}
 # study_name: Unique identifier for this optimization study
 #   - Used to group related trials together
 #   - Can resume study with same name: load_if_exists=True
-#   - Best practice: descriptive name like "dsm5_bert_base_v1"
+#   - Best practice: descriptive name like "dsm5_bge_reranker_v1"
 study_name: project_hpo
 
 # direction: Optimization direction for objective metric
@@ -77,34 +77,23 @@ pruner:
 search_space:
   # learning_rate: AdamW learning rate
   #   - type: loguniform - samples from log scale (better for orders of magnitude)
-  #   - Range: [1e-5, 5e-5] - standard BERT fine-tuning range
-  #   - Examples: 1.5e-5, 2e-5, 3.5e-5
-  #   - Log scale ensures good coverage of 1e-5, 2e-5, 5e-5
+  #   - Range: [5e-6, 3e-5] - conservative for XLM-R based reranker
+  #   - Examples: 6e-6, 1e-5, 2e-5
+  #   - Log scale ensures good coverage of 5e-6, 1e-5, 3e-5
   learning_rate:
     type: loguniform
-    low: 1e-5
-    high: 5e-5
+    low: 5e-6
+    high: 3e-5
 
   # batch_size: Training batch size
   #   - type: categorical - discrete choices only
-  #   - Choices: [16, 32, 64] - powers of 2 for GPU efficiency
-  #   - 16: Lower memory, slower
-  #   - 32: Balanced (default)
-  #   - 64: Faster but more memory (RTX 5090 can handle)
+  #   - Choices: [4, 8, 16] - XLM-R large reranker is memory intensive
+  #   - 4: Safest for limited memory
+  #   - 8: Balanced (default)
+  #   - 16: Faster but high memory
   batch_size:
     type: categorical
-    choices: [16, 32, 64]
-
-  # dropout: Dropout probability for BERT classifier head
-  #   - type: uniform - samples uniformly from range
-  #   - Range: [0.1, 0.3] - typical for BERT fine-tuning
-  #   - Lower = less regularization (may overfit)
-  #   - Higher = more regularization (may underfit)
-  #   - BERT layers use fixed 0.1 dropout (not tuned)
-  dropout:
-    type: uniform
-    low: 0.1
-    high: 0.3
+    choices: [4, 8, 16]
 
   # weight_decay: L2 regularization strength for AdamW
   #   - type: loguniform - log scale for order of magnitude search

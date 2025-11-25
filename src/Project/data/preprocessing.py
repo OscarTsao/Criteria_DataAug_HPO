@@ -84,6 +84,15 @@ def load_and_preprocess_data(config) -> pd.DataFrame:
     # Select final columns in correct order
     pairs_df = pairs_df[["post_id", "post", "criterion_id", "criterion", "label"]]
 
+    # Optional subsampling for fast smoke tests
+    sample_size = getattr(config.data, "sample_size", None)
+    if sample_size:
+        sample_size = min(int(sample_size), len(pairs_df))
+        pairs_df = pairs_df.sample(n=sample_size, random_state=config.data.sample_seed)
+        console.print(
+            f"[yellow]• Using sample_size={sample_size} (seed={config.data.sample_seed}) for quick run[/yellow]"
+        )
+
     positive = int((pairs_df["label"] == 1).sum())
     negative = int((pairs_df["label"] == 0).sum())
 
@@ -92,7 +101,6 @@ def load_and_preprocess_data(config) -> pd.DataFrame:
     console.print(f"  • Unique criteria: {pairs_df['criterion_id'].nunique():,}")
     console.print(f"  • Positive samples: {positive:,}")
     console.print(f"  • Negative samples: {negative:,}")
-
 
     console.print("\n[cyan]═══════════════════════════════════════════════════════════[/cyan]\n")
 

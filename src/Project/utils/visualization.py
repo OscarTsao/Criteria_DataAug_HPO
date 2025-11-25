@@ -68,7 +68,7 @@ def print_config_summary(config):
     table.add_row("Epochs", str(config.training.num_epochs))
     table.add_row("K-Folds", str(config.kfold.n_splits))
     table.add_row("BF16", str(config.training.optimization.use_bf16))
-    table.add_row("TF32", str(config.training.optimization.use_tf32))
+    table.add_row("TF32", str(config.reproducibility.tf32))
 
     console.print(table)
     console.print()

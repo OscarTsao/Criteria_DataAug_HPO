@@ -1,102 +1,73 @@
-"""BERT-based classifier for DSM-5 NLI."""
+"""Sequence classification model wrapper for the BGE reranker."""
+
+from typing import Optional
 
 import torch
 import torch.nn as nn
-from transformers import AutoModel, AutoConfig
+from transformers import AutoConfig, AutoModelForSequenceClassification
 
 
 class BERTClassifier(nn.Module):
-    """BERT classifier with dropout and linear classification head."""
+    """Wrap AutoModelForSequenceClassification for the BGE reranker."""
 
     def __init__(
         self,
-        model_name: str = "google/bert-base-uncased",
-        num_labels: int = 2,
-        dropout: float = 0.1,
-        freeze_bert: bool = False,
+        model_name: str = "BAAI/bge-reranker-v2-m3",
+        num_labels: int = 1,
+        freeze_backbone: bool = False,
+        config: Optional[AutoConfig] = None,
     ):
-        """Initialize BERT classifier.
+        """Initialize the reranker model.
 
         Args:
-            model_name: Pretrained model name
-            num_labels: Number of output classes
-            dropout: Dropout probability
-            freeze_bert: Freeze BERT weights
+            model_name: Pretrained model identifier or local path.
+            num_labels: Number of output labels. Keep at 1 to align with the pretrained head.
+            freeze_backbone: Whether to freeze the encoder parameters.
+            config: Optional pre-loaded configuration to reuse.
         """
         super().__init__()
 
         self.model_name = model_name
-        self.num_labels = num_labels
-        self.dropout_prob = dropout
+        self.config = config or AutoConfig.from_pretrained(model_name)
+        self.config.num_labels = num_labels or self.config.num_labels
 
-        # Load BERT
-        self.bert = AutoModel.from_pretrained(model_name)
-        self.config = AutoConfig.from_pretrained(model_name)
+        self.model = AutoModelForSequenceClassification.from_pretrained(
+            model_name,
+            config=self.config,
+        )
+        self.num_labels = self.model.config.num_labels
 
-        # Detect model capabilities for multi-model support
-        # Some models (RoBERTa, DeBERTa, ModernBERT) don't use token_type_ids
-        # RoBERTa has type_vocab_size=1 but ignores token_type_ids
-        # BERT has type_vocab_size=2 and uses token_type_ids
-        # DeBERTa has type_vocab_size=0 and doesn't use token_type_ids
+        # Detect model capabilities
         self.uses_token_type_ids = (
-            hasattr(self.config, "type_vocab_size") and self.config.type_vocab_size > 1
+            hasattr(self.model.config, "type_vocab_size")
+            and self.model.config.type_vocab_size is not None
+            and self.model.config.type_vocab_size > 1
         )
 
-        # Some models don't have pooler_output, need to use CLS token manually
-        # This will be checked dynamically in forward pass
-        self.has_pooler = None  # Determined on first forward pass
-
-        # Freeze BERT if requested
-        if freeze_bert:
-            for param in self.bert.parameters():
-                param.requires_grad = False
-
-        # Classification head
-        self.dropout = nn.Dropout(dropout)
-        self.classifier = nn.Linear(self.config.hidden_size, num_labels)
-
-        # Initialize classifier
-        nn.init.xavier_uniform_(self.classifier.weight)
-        nn.init.zeros_(self.classifier.bias)
+        if freeze_backbone:
+            backbone = getattr(self.model, getattr(self.model, "base_model_prefix", ""), None)
+            if backbone is not None:
+                for param in backbone.parameters():
+                    param.requires_grad = False
 
     def forward(self, input_ids, attention_mask, token_type_ids=None, labels=None):
-        """Forward pass.
-
-        Args:
-            input_ids: Token IDs [batch_size, seq_len]
-            attention_mask: Attention mask [batch_size, seq_len]
-            token_type_ids: Segment IDs (optional, not used by RoBERTa/DeBERTa)
-            labels: Labels for loss computation (optional)
-
-        Returns:
-            Dict with 'logits' and optionally 'loss'
-        """
-        # Only pass token_type_ids if the model supports them
+        """Forward pass."""
+        model_inputs = {"input_ids": input_ids, "attention_mask": attention_mask}
         if self.uses_token_type_ids and token_type_ids is not None:
-            outputs = self.bert(
-                input_ids=input_ids, attention_mask=attention_mask, token_type_ids=token_type_ids
-            )
-        else:
-            outputs = self.bert(input_ids=input_ids, attention_mask=attention_mask)
+            model_inputs["token_type_ids"] = token_type_ids
 
-        # Use pooler_output if available, otherwise extract CLS token manually
-        # Detect pooler availability on first forward pass
-        if self.has_pooler is None:
-            self.has_pooler = (
-                hasattr(outputs, "pooler_output") and outputs.pooler_output is not None
-            )
-
-        pooled_output = (
-            outputs.pooler_output if self.has_pooler else outputs.last_hidden_state[:, 0, :]
-        )
-
-        pooled_output = self.dropout(pooled_output)
-        logits = self.classifier(pooled_output)
+        outputs = self.model(**model_inputs)
+        logits = outputs.logits if hasattr(outputs, "logits") else outputs["logits"]
 
         loss = None
         if labels is not None:
-            loss_fct = nn.CrossEntropyLoss()
-            loss = loss_fct(logits, labels)
+            if logits.shape[-1] == 1:
+                labels = labels.float()
+                loss_fct = nn.BCEWithLogitsLoss()
+                loss = loss_fct(logits.view(-1), labels.view(-1))
+            else:
+                loss_fct = nn.CrossEntropyLoss()
+                loss = loss_fct(logits.view(-1, logits.size(-1)), labels.view(-1))
 
         return {"logits": logits, "loss": loss}
 
@@ -113,37 +84,10 @@ class BERTClassifier(nn.Module):
         import os
 
         os.makedirs(save_directory, exist_ok=True)
-
-        # Save BERT
-        self.bert.save_pretrained(save_directory)
-
-        # Save classifier
-        torch.save(
-            {
-                "classifier": self.classifier.state_dict(),
-                "dropout_prob": self.dropout_prob,
-                "num_labels": self.num_labels,
-            },
-            os.path.join(save_directory, "classifier.pt"),
-        )
+        self.model.save_pretrained(save_directory)
 
     @classmethod
     def from_pretrained(cls, load_directory: str):
         """Load model from directory."""
-        import os
-
-        # Load classifier config
-        classifier_path = os.path.join(load_directory, "classifier.pt")
-        classifier_state = torch.load(classifier_path, map_location="cpu")
-
-        # Create model
-        model = cls(
-            model_name=load_directory,
-            num_labels=classifier_state["num_labels"],
-            dropout=classifier_state["dropout_prob"],
-        )
-
-        # Load classifier weights
-        model.classifier.load_state_dict(classifier_state["classifier"])
-
-        return model
+        config = AutoConfig.from_pretrained(load_directory)
+        return cls(model_name=load_directory, num_labels=config.num_labels, config=config)

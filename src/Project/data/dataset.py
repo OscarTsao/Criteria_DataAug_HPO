@@ -1,5 +1,7 @@
 """PyTorch Dataset for DSM-5 NLI."""
 
+import multiprocessing as mp
+import warnings
 from typing import Dict
 
 import pandas as pd
@@ -68,6 +70,19 @@ class DSM5NLIDataset(Dataset):
         return item
 
 
+def _supports_multiprocessing() -> bool:
+    """Return True if Python multiprocessing primitives are usable."""
+    try:
+        ctx = mp.get_context()
+        queue = ctx.Queue(maxsize=1)
+        queue.put_nowait(None)
+        queue.close()
+        queue.join_thread()
+        return True
+    except (OSError, PermissionError):
+        return False
+
+
 def create_dataloaders(
     train_dataset, val_dataset, batch_size: int, num_workers: int = 4, pin_memory: bool = True
 ):
@@ -83,20 +98,31 @@ def create_dataloaders(
     Returns:
         Tuple of (train_loader, val_loader)
     """
+    use_pin_memory = pin_memory and torch.cuda.is_available()
+
+    # Some sandboxes disable semaphores/shared memory; fall back to single-process loading
+    worker_count = num_workers
+    if worker_count > 0 and not _supports_multiprocessing():
+        warnings.warn(
+            "Multiprocessing dataloaders are not available; falling back to num_workers=0.",
+            RuntimeWarning,
+        )
+        worker_count = 0
+
     train_loader = DataLoader(
         train_dataset,
         batch_size=batch_size,
         shuffle=True,
-        num_workers=num_workers,
-        pin_memory=pin_memory,
+        num_workers=worker_count,
+        pin_memory=use_pin_memory,
     )
 
     val_loader = DataLoader(
         val_dataset,
         batch_size=batch_size,
         shuffle=False,
-        num_workers=num_workers,
-        pin_memory=pin_memory,
+        num_workers=worker_count,
+        pin_memory=use_pin_memory,
     )
 
     return train_loader, val_loader

@@ -48,13 +48,13 @@ pytest
 Uses Hydra with composition pattern. Main config: `configs/config.yaml`
 
 **Config components:**
-- `configs/model/bert_base.yaml` - Model architecture (model_name, num_labels, dropout)
+- `configs/model/bge_reranker.yaml` - Reranker architecture (model_name, num_labels, threshold)
 - `configs/training/default.yaml` - Training hyperparameters, optimization flags
 - `configs/hpo/optuna.yaml` - Optuna study settings, search spaces
 
 **Override configs via CLI:**
 ```bash
-python -m Project.cli train model.dropout=0.2 training.learning_rate=3e-5 training.num_epochs=100 training.early_stopping_patience=20
+python -m Project.cli train training.learning_rate=1e-5 training.num_epochs=100 training.early_stopping_patience=20
 ```
 
 ## Architecture
@@ -66,7 +66,7 @@ The CLI (`cli.py`) orchestrates the full training pipeline:
 1. **Data Loading** (`data/preprocessing.py`) - Loads posts, annotations, and DSM-5 criteria from CSV/JSON
 2. **K-fold Splits** (`training/kfold.py`) - Stratified splits grouped by post (prevents data leakage)
 3. **Dataset** - Tokenizes post-criterion pairs for binary classification
-4. **Model** (`models/bert_classifier.py`) - BERT + classification head
+4. **Model** (`models/bert_classifier.py`) - BGE reranker wrapper for sequence classification
 5. **Training** (`training/trainer.py`) - Training loop with gradient accumulation, mixed precision
 6. **Evaluation** (`evaluation/evaluator.py`) - Per-criterion and aggregate metrics
 7. **MLflow Logging** (`utils/mlflow_setup.py`) - Experiment tracking

@@ -8,11 +8,9 @@
 
 # Declare all targets as phony (not actual files)
 .PHONY: help setup train hpo eval clean test lint format
-.PHONY: train_bert train_roberta train_deberta train_modernbert train_mentalbert train_psychbert
-.PHONY: hpo_bert hpo_roberta hpo_deberta hpo_modernbert hpo_mentalbert hpo_psychbert
 
 # Default tracking backends (override via env if needed)
-MLFLOW_URI ?= sqlite:///mlflow.db
+MLFLOW_URI ?= file:mlruns
 OPTUNA_URI ?= sqlite:///optuna.db
 PYTHON ?= python3
 N_TRIALS ?= 500
@@ -55,51 +53,15 @@ setup:
 train:
 	MLFLOW_TRACKING_URI=$(MLFLOW_URI) $(PYTHON) -m Project.cli command=train $(EXTRA_ARGS)
 
-train_bert:
-	MLFLOW_TRACKING_URI=$(MLFLOW_URI) $(PYTHON) -m Project.cli command=train model=bert_base $(EXTRA_ARGS)
-
-train_roberta:
-	MLFLOW_TRACKING_URI=$(MLFLOW_URI) $(PYTHON) -m Project.cli command=train model=roberta $(EXTRA_ARGS)
-
-train_deberta:
-	MLFLOW_TRACKING_URI=$(MLFLOW_URI) $(PYTHON) -m Project.cli command=train model=deberta_v3 $(EXTRA_ARGS)
-
-train_modernbert:
-	MLFLOW_TRACKING_URI=$(MLFLOW_URI) $(PYTHON) -m Project.cli command=train model=modernbert $(EXTRA_ARGS)
-
-train_mentalbert:
-	MLFLOW_TRACKING_URI=$(MLFLOW_URI) $(PYTHON) -m Project.cli command=train model=mentalbert $(EXTRA_ARGS)
-
-train_psychbert:
-	MLFLOW_TRACKING_URI=$(MLFLOW_URI) $(PYTHON) -m Project.cli command=train model=psychbert $(EXTRA_ARGS)
-
 # ============================================================================
 # HPO - Run hyperparameter optimization with Optuna
 # ============================================================================
-# Searches 500 hyperparameter combinations using Optuna
-# Each trial runs full 100-epoch K-fold CV with patience 20
+# Uses configs/hpo/pc_ce.yaml (LoRA/QLoRA + threshold tuning search space)
+# Defaults to 500 trials; override N_TRIALS for smaller/faster searches
 # Results stored in SQLite (Optuna) and MLflow by default
-# Override n_trials or storage URIs via env if needed
+# Pass EXTRA_ARGS for Hydra overrides (e.g., hpo.search_space.threshold_mode=global)
 hpo:
 	MLFLOW_TRACKING_URI=$(MLFLOW_URI) OPTUNA_STORAGE=$(OPTUNA_URI) $(PYTHON) -m Project.cli command=hpo n_trials=$(N_TRIALS) $(EXTRA_ARGS)
-
-hpo_bert:
-	MLFLOW_TRACKING_URI=$(MLFLOW_URI) OPTUNA_STORAGE=$(OPTUNA_URI) $(PYTHON) -m Project.cli command=hpo n_trials=$(N_TRIALS) model=bert_base $(EXTRA_ARGS)
-
-hpo_roberta:
-	MLFLOW_TRACKING_URI=$(MLFLOW_URI) OPTUNA_STORAGE=$(OPTUNA_URI) $(PYTHON) -m Project.cli command=hpo n_trials=$(N_TRIALS) model=roberta $(EXTRA_ARGS)
-
-hpo_deberta:
-	MLFLOW_TRACKING_URI=$(MLFLOW_URI) OPTUNA_STORAGE=$(OPTUNA_URI) $(PYTHON) -m Project.cli command=hpo n_trials=$(N_TRIALS) model=deberta_v3 $(EXTRA_ARGS)
-
-hpo_modernbert:
-	MLFLOW_TRACKING_URI=$(MLFLOW_URI) OPTUNA_STORAGE=$(OPTUNA_URI) $(PYTHON) -m Project.cli command=hpo n_trials=$(N_TRIALS) model=modernbert $(EXTRA_ARGS)
-
-hpo_mentalbert:
-	MLFLOW_TRACKING_URI=$(MLFLOW_URI) OPTUNA_STORAGE=$(OPTUNA_URI) $(PYTHON) -m Project.cli command=hpo n_trials=$(N_TRIALS) model=mentalbert $(EXTRA_ARGS)
-
-hpo_psychbert:
-	MLFLOW_TRACKING_URI=$(MLFLOW_URI) OPTUNA_STORAGE=$(OPTUNA_URI) $(PYTHON) -m Project.cli command=hpo n_trials=$(N_TRIALS) model=psychbert $(EXTRA_ARGS)
 
 # ============================================================================
 # EVAL - Evaluate a specific fold (not yet implemented)

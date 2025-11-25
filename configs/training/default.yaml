@@ -1,7 +1,7 @@
 # ============================================================================
 # Training Hyperparameters Configuration
 # ============================================================================
-# Default training settings optimized for RTX 5090 with BERT-base-uncased
+# Default training settings tuned for BAAI/bge-reranker-v2-m3 (XLM-R large)
 # All parameters can be overridden via CLI or HPO
 # ============================================================================
 
@@ -10,19 +10,18 @@
 # ============================================================================
 
 # batch_size: Number of samples per training batch
-#   - Default: 32 (balanced speed/memory for RTX 5090)
-#   - Larger = faster training but more memory (try 64, 128)
-#   - Smaller = less memory but slower (try 16, 8)
-#   - RTX 5090 can handle 64+ with BERT-base + BF16
-batch_size: 32
+#   - Default: 8 (reranker backbone is memory intensive)
+#   - Larger = faster training but more memory (try 16)
+#   - Smaller = less memory but slower (try 4)
+batch_size: 8
 
-# learning_rate: AdamW learning rate for fine-tuning BERT
-#   - Default: 2e-5 (standard BERT fine-tuning rate)
-#   - Typical range: 1e-5 to 5e-5
+# learning_rate: AdamW learning rate for fine-tuning BGE reranker
+#   - Default: 1e-5 (stable for XLM-R large backbones)
+#   - Typical range: 5e-6 to 3e-5
 #   - Too high: unstable training, divergence
 #   - Too low: slow convergence, underfitting
 #   - HPO searches this range automatically
-learning_rate: 2e-5
+learning_rate: 1e-5
 
 # num_epochs: Number of complete passes through training data
 #   - Default: 100 for thorough convergence on this dataset
@@ -38,7 +37,7 @@ num_epochs: 100
 early_stopping_patience: 20
 
 # weight_decay: L2 regularization strength for AdamW optimizer
-#   - Default: 0.01 (standard for BERT)
+#   - Default: 0.01 (standard for large Transformers)
 #   - Prevents overfitting by penalizing large weights
 #   - Typical range: 0.001 to 0.1
 #   - 0 = no regularization (may overfit)
@@ -84,7 +83,7 @@ optimization:
 gradient_accumulation_steps: 1
 
 # max_grad_norm: Maximum gradient norm for clipping
-#   - Default: 1.0 (standard for BERT)
+#   - Default: 1.0 (standard for Transformer encoders)
 #   - Prevents exploding gradients during training
 #   - Clips gradients with L2 norm > max_grad_norm to max_grad_norm
 #   - 0 = no clipping (may cause instability)
@@ -95,7 +94,7 @@ max_grad_norm: 1.0
 #   - Default: 0.1 (10% of total steps)
 #   - Linearly increases LR from 0 to learning_rate over warmup period
 #   - Then linearly decays to 0 over remaining steps
-#   - Prevents initial instability in BERT fine-tuning
+#   - Prevents initial instability in fine-tuning
 #   - Typical range: 0.05 to 0.15 (5-15%)
 warmup_ratio: 0.1
 

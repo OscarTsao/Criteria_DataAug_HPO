@@ -117,8 +117,7 @@ def run_single_fold(
     model = BERTClassifier(
         model_name=config.model.model_name,
         num_labels=config.model.num_labels,
-        dropout=config.model.dropout,
-        freeze_bert=config.model.freeze_bert,
+        freeze_backbone=config.model.freeze_backbone,
     )
 
     console.print(
@@ -152,6 +151,7 @@ def run_single_fold(
         mlflow_enabled=True,
         early_stopping_patience=config.training.early_stopping_patience,
         checkpoint_dir=hydra.utils.to_absolute_path(config.checkpoint_dir),
+        positive_threshold=config.model.positive_threshold,
     )
 
     # Train
@@ -162,6 +162,7 @@ def run_single_fold(
         model=trainer.model,
         device=device,
         use_bf16=config.training.optimization.use_bf16,
+        positive_threshold=config.model.positive_threshold,
     )
     val_data = pairs_df.iloc[val_idx].reset_index(drop=True)
     eval_results = evaluator.evaluate(val_loader, val_data)
@@ -393,12 +394,6 @@ def run_hpo_worker(config: DictConfig, n_trials: int, worker_id: Optional[int] =
             config.hpo.search_space.batch_size.choices,
         )
 
-        dropout = trial.suggest_float(
-            "dropout",
-            config.hpo.search_space.dropout.low,
-            config.hpo.search_space.dropout.high,
-        )
-
         weight_decay = trial.suggest_float(
             "weight_decay",
             config.hpo.search_space.weight_decay.low,
@@ -413,7 +408,7 @@ def run_hpo_worker(config: DictConfig, n_trials: int, worker_id: Optional[int] =
         )
 
         console.print(f"\n{worker_prefix}[bold magenta]Trial {trial.number}[/bold magenta]")
-        console.print(f"  LR: {learning_rate:.2e}, BS: {batch_size}, Dropout: {dropout:.3f}")
+        console.print(f"  LR: {learning_rate:.2e}, BS: {batch_size}")
 
         # Run K-fold CV with sampled hyperparameters
         fold_scores = []
@@ -447,11 +442,11 @@ def run_hpo_worker(config: DictConfig, n_trials: int, worker_id: Optional[int] =
                     pin_memory=config.training.pin_memory,
                 )
 
-                # Create model with trial dropout
+                # Create model with sampled configuration
                 model = BERTClassifier(
                     model_name=config.model.model_name,
                     num_labels=config.model.num_labels,
-                    dropout=dropout,
+                    freeze_backbone=config.model.freeze_backbone,
                 )
 
                 # Create optimizer with trial hyperparameters
@@ -480,6 +475,7 @@ def run_hpo_worker(config: DictConfig, n_trials: int, worker_id: Optional[int] =
                     max_grad_norm=config.training.max_grad_norm,
                     mlflow_enabled=False,  # Disable per-step logging during HPO
                     early_stopping_patience=config.training.early_stopping_patience,
+                    positive_threshold=config.model.positive_threshold,
                 )
 
                 # Train with configured epochs (HPO will control runtime via trials/early stopping)
@@ -727,6 +723,7 @@ def run_eval(config: DictConfig, fold: int = 0):
         model=model,
         device=device,
         use_bf16=config.training.optimization.use_bf16,
+        positive_threshold=config.model.positive_threshold,
     )
 
     val_data = pairs_df.iloc[val_idx].reset_index(drop=True)
