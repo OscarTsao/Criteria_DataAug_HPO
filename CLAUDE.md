@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-This is a DSM-5 criteria matching project using Natural Language Inference (NLI) with BERT-based models. The repository now consolidates all active code in `src/Project/`, which contains the Hydra CLI plus data, model, training, evaluation, and utility modules built on PyTorch, Transformers, MLflow, and Optuna.
+This is a DSM-5 criteria matching project using Natural Language Inference (NLI) with BERT-based models. The repository now consolidates all active code in `src/criteria_bge_hpo/`, which contains the Hydra CLI plus data, model, training, evaluation, and utility modules built on PyTorch, Transformers, MLflow, and Optuna.
 
 ## Setup and Installation
 
@@ -19,17 +19,17 @@ pip install -e '.[dev]'
 
 ### DSM-5 NLI Training
 
-The main CLI is `src/Project/cli.py` which uses Hydra for configuration management:
+The main CLI is `src/criteria_bge_hpo/cli.py` which uses Hydra for configuration management:
 
 ```bash
 # K-fold cross-validation training (100 epochs, patience 20)
-python -m Project.cli train training.num_epochs=100 training.early_stopping_patience=20
+python -m criteria_bge_hpo.cli train training.num_epochs=100 training.early_stopping_patience=20
 
 # Hyperparameter optimization (500 trials)
-python -m Project.cli hpo --n-trials 500
+python -m criteria_bge_hpo.cli hpo --n-trials 500
 
 # Evaluate specific fold
-python -m Project.cli eval --fold 0
+python -m criteria_bge_hpo.cli eval --fold 0
 ```
 
 ### Development
@@ -54,12 +54,12 @@ Uses Hydra with composition pattern. Main config: `configs/config.yaml`
 
 **Override configs via CLI:**
 ```bash
-python -m Project.cli train training.learning_rate=1e-5 training.num_epochs=100 training.early_stopping_patience=20
+python -m criteria_bge_hpo.cli train training.learning_rate=1e-5 training.num_epochs=100 training.early_stopping_patience=20
 ```
 
 ## Architecture
 
-### DSM-5 NLI Pipeline (src/Project/)
+### DSM-5 NLI Pipeline (src/criteria_bge_hpo/)
 
 The CLI (`cli.py`) orchestrates the full training pipeline:
 
@@ -84,13 +84,13 @@ Optuna with MedianPruner for early stopping. Each study targets 500 trials by de
 
 HPO runs 100-epoch K-fold CV (patience 20) to stay aligned with full-training defaults.
 
-## GPU Optimization (RTX 5090)
+## GPU Optimization (Ampere+ GPUs)
 
 Training config enables aggressive optimizations:
-- `use_bf16: true` - bfloat16 mixed precision (2x speedup)
-- `use_tf32: true` - TensorFloat-32 operations (2-3x speedup)
-- `use_torch_compile: true` - JIT compilation (10-20% speedup)
-- `fused_adamw: true` - Fused optimizer kernel
+- `use_bf16: true` - bfloat16 mixed precision (2x speedup, requires Ampere+)
+- `use_tf32: true` - TensorFloat-32 operations (2-3x speedup on Ampere+)
+- `use_torch_compile: true` - JIT compilation (10-20% speedup on PyTorch 2+)
+- `fused_adamw: true` - Fused optimizer kernel when CUDA is available
 
 Set `reproducibility.tf32: true` in config for deterministic TF32 behavior.
 
@@ -98,7 +98,7 @@ Set `reproducibility.tf32: true` in config for deterministic TF32 behavior.
 
 - `data/redsm5/redsm5_posts.csv` - Social media posts
 - `data/redsm5/redsm5_annotations.csv` - Annotations linking posts to criteria
-- `data/DSM5/MDD_Criteira.json` - DSM-5 Major Depressive Disorder criteria definitions
+- `data/DSM5/MDD_Criteria.json` - DSM-5 Major Depressive Disorder criteria definitions
 
 ## Important Implementation Details
 

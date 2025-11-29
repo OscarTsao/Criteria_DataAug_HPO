@@ -15,6 +15,9 @@ OPTUNA_URI ?= sqlite:///optuna.db
 PYTHON ?= python3
 N_TRIALS ?= 500
 EXTRA_ARGS ?=
+# Ensure this repo's src/ is first on PYTHONPATH (avoids picking up other editable installs)
+PYTHONPATH := $(CURDIR)/src$(if $(PYTHONPATH),:$(PYTHONPATH),)
+export PYTHONPATH
 
 # ============================================================================
 # HELP - Display available targets and their descriptions
@@ -37,7 +40,7 @@ help:
 # ============================================================================
 # Upgrades pip and installs the package with development dependencies
 # Run this once after cloning the repository
-# Creates: .venv/lib/python3.10/site-packages/Project.egg-link
+# Creates: .venv/lib/python3.10/site-packages/criteria_bge_hpo.egg-link
 setup:
 	$(PYTHON) -m pip install --upgrade pip
 	$(PYTHON) -m pip install -e '.[dev]'  # Editable install with dev dependencies (pytest, ruff, black)
@@ -51,7 +54,7 @@ setup:
 # Runtime: ~30-60 minutes depending on GPU
 # Output: mlruns/, outputs/dsm5_criteria_matching/checkpoints/
 train:
-	MLFLOW_TRACKING_URI=$(MLFLOW_URI) $(PYTHON) -m Project.cli command=train $(EXTRA_ARGS)
+	MLFLOW_TRACKING_URI=$(MLFLOW_URI) $(PYTHON) -m criteria_bge_hpo.cli command=train training.num_epochs=100 training.early_stopping_patience=20 $(EXTRA_ARGS)
 
 # ============================================================================
 # HPO - Run hyperparameter optimization with Optuna
@@ -61,7 +64,7 @@ train:
 # Results stored in SQLite (Optuna) and MLflow by default
 # Pass EXTRA_ARGS for Hydra overrides (e.g., hpo.search_space.threshold_mode=global)
 hpo:
-	MLFLOW_TRACKING_URI=$(MLFLOW_URI) OPTUNA_STORAGE=$(OPTUNA_URI) $(PYTHON) -m Project.cli command=hpo n_trials=$(N_TRIALS) $(EXTRA_ARGS)
+	MLFLOW_TRACKING_URI=$(MLFLOW_URI) OPTUNA_STORAGE=$(OPTUNA_URI) $(PYTHON) -m criteria_bge_hpo.cli command=hpo n_trials=$(N_TRIALS) training.num_epochs=100 training.early_stopping_patience=20 $(EXTRA_ARGS)
 
 # ============================================================================
 # EVAL - Evaluate a specific fold (not yet implemented)
@@ -69,7 +72,7 @@ hpo:
 # Loads trained model from fold 0 and runs evaluation
 # Displays per-criterion metrics and aggregate performance
 eval:
-	MLFLOW_TRACKING_URI=$(MLFLOW_URI) $(PYTHON) -m Project.cli command=eval fold=0 $(EXTRA_ARGS)
+	MLFLOW_TRACKING_URI=$(MLFLOW_URI) $(PYTHON) -m criteria_bge_hpo.cli command=eval fold=0 $(EXTRA_ARGS)
 
 # ============================================================================
 # CLEAN - Remove all generated files, outputs, and cache
@@ -101,11 +104,11 @@ clean:
 # Generates HTML coverage report in htmlcov/
 # Flags:
 #   -v: Verbose output (show individual test results)
-#   --cov: Measure code coverage for src/Project
+#   --cov: Measure code coverage for src/criteria_bge_hpo
 #   --cov-report=html: Generate HTML coverage report
 # Output: htmlcov/index.html (open in browser to view coverage)
 test:
-	pytest tests/ -v --cov=src/Project --cov-report=html
+	pytest tests/ -v --cov=src/criteria_bge_hpo --cov-report=html
 
 # ============================================================================
 # LINT - Run code quality checks with ruff

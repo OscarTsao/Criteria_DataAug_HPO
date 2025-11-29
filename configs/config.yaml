@@ -5,8 +5,8 @@
 # It combines model, training, and HPO configs into a unified configuration.
 #
 # Usage:
-#   python -m Project.cli command=train
-#   python -m Project.cli command=train training.learning_rate=1e-5
+#   python -m criteria_bge_hpo.cli command=train
+#   python -m criteria_bge_hpo.cli command=train training.learning_rate=1e-5
 #
 # Hydra allows runtime overrides of any parameter via CLI arguments.
 # ============================================================================
@@ -14,6 +14,7 @@
 defaults:
   - model: bge_reranker   # Model architecture config (bge_reranker.yaml)
   - training: default     # Training hyperparameters (default.yaml)
+  - augmentation: default # Evidence-span augmentation settings
   - hpo: pc_ce            # HPO search space (pc_ce.yaml)
   - _self_                # This file's settings override the above
 
@@ -54,7 +55,11 @@ data:
 
   # criteria_json: DSM-5 Major Depressive Disorder criteria definitions
   #   Format: {"criteria": [{"id": "A.1", "text": "..."}]}
-  criteria_json: data/DSM5/MDD_Criteira.json
+  criteria_json: data/DSM5/MDD_Criteria.json
+
+  # annotations_csv: Expert evidence spans aligned to DSM-5 symptoms
+  #   Used for evidence-only augmentation during training
+  annotations_csv: data/redsm5/redsm5_annotations.csv
 
   # sample_size: Optional row count for quick smoke tests (null = full dataset)
   sample_size: null
@@ -66,6 +71,16 @@ data:
   #   - Format: [CLS] post [SEP] criterion [SEP] with padding to max_length
   #   - Trade-off: longer = more context but slower training
   max_length: 512
+
+# ============================================================================
+# AUGMENTATION SETTINGS
+# ============================================================================
+# Evidence-only augmentation applied to positive samples during training
+augmentation:
+  enable: false
+  lib: nlpaug        # nlpaug or textattack (nlpaug implemented)
+  type: synonym      # synonym or contextual
+  prob: 0.0          # probability per-sample to augment evidence span
 
 # ============================================================================
 # K-FOLD CROSS-VALIDATION

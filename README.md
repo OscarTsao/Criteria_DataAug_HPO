@@ -13,6 +13,9 @@ python -m pip install --upgrade pip
 pip install -e '.[dev]'
 ```
 
+Copy `env.example` to `.env` (or export the variables another way) so MLflow and Optuna know where
+to persist experiment metadata locally.
+
 ## Dataset
 
 The project now relies on a single unified ground-truth file:
@@ -25,7 +28,7 @@ The project now relies on a single unified ground-truth file:
 
 Supporting metadata remains available for reference:
 
-- `data/DSM5/MDD_Criteira.json` – canonical DSM-5 criterion definitions
+- `data/DSM5/MDD_Criteria.json` – canonical DSM-5 criterion definitions
 - `data/redsm5/*` – original posts/annotations (kept for provenance)
 - Other CSVs under `data/groundtruth/` – additional tasks that share the same schema
 
@@ -35,13 +38,13 @@ Hydra drives all CLI commands via `configs/config.yaml`. Examples:
 
 ```bash
 # K-fold training (100 epochs w/ patience 20, default: 5 folds)
-python -m Project.cli command=train training.num_epochs=100 training.early_stopping_patience=20
+python -m criteria_bge_hpo.cli command=train training.num_epochs=100 training.early_stopping_patience=20
 
 # Evaluate a saved fold checkpoint
-python -m Project.cli command=eval fold=0
+python -m criteria_bge_hpo.cli command=eval fold=0
 
 # Hyper-parameter search with Optuna (LoRA/QLoRA + threshold tuning; defaults to 500 trials)
-python -m Project.cli command=hpo n_trials=500
+python -m criteria_bge_hpo.cli command=hpo n_trials=500
 ```
 
 Training logs accuracy, F1, precision, recall, and AUC per fold and saves the best checkpoint for each
@@ -61,8 +64,8 @@ Key config knobs (see `configs/hpo/pc_ce.yaml` for the HPO search space):
 - Format & lint: `ruff check src tests` and `black src tests`
 - Type check: `mypy src`
 - Tests: `pytest`
-- End-to-end training check: `python -m Project.cli command=train training.num_epochs=100 training.early_stopping_patience=20`
-- Evaluate a trained fold: `python -m Project.cli command=eval fold=0` (requires checkpoint under `outputs/<experiment>/checkpoints`)
+- End-to-end training check: `python -m criteria_bge_hpo.cli command=train training.num_epochs=100 training.early_stopping_patience=20`
+- Evaluate a trained fold: `python -m criteria_bge_hpo.cli command=eval fold=0` (requires checkpoint under `outputs/<experiment>/checkpoints`)
 
 ## Outputs & Tracking
 
@@ -73,8 +76,8 @@ Key config knobs (see `configs/hpo/pc_ce.yaml` for the HPO search space):
 ## Project Structure (partial)
 
 ```
-configs/            # Hydra configs (root + model/training/hpo overrides)
-data/               # Groundtruth CSVs, DSM-5 metadata, legacy sources
-src/Project/        # CLI entrypoint, data pipeline, models, trainer, utils
-tests/              # Pytest suite covering configs/models/datasets
+configs/                # Hydra configs (root + model/training/hpo overrides)
+data/                   # Groundtruth CSVs, DSM-5 metadata, legacy sources
+src/criteria_bge_hpo/   # CLI entrypoint, data pipeline, models, trainer, utils
+tests/                  # Pytest suite covering configs/models/datasets
 ```

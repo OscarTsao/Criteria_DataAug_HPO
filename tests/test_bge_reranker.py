@@ -13,9 +13,9 @@ from transformers import AutoConfig, AutoTokenizer
 repo_root = Path(__file__).parent.parent
 sys.path.insert(0, str(repo_root / "src"))
 
-from Project.data.dataset import DSM5NLIDataset  # noqa: E402
-from Project.evaluation.evaluator import Evaluator  # noqa: E402
-from Project.models.bert_classifier import BERTClassifier  # noqa: E402
+from criteria_bge_hpo.data.dataset import DSM5NLIDataset  # noqa: E402
+from criteria_bge_hpo.evaluation.evaluator import Evaluator  # noqa: E402
+from criteria_bge_hpo.models.bert_classifier import BERTClassifier  # noqa: E402
 
 
 @pytest.fixture
@@ -87,7 +87,7 @@ def test_bge_classifier_forward_single_logit(monkeypatch):
     config.num_labels = 1
 
     monkeypatch.setattr(
-        "Project.models.bert_classifier.AutoModelForSequenceClassification.from_pretrained",
+        "criteria_bge_hpo.models.bert_classifier.AutoModelForSequenceClassification.from_pretrained",
         lambda model_name, config: _DummyModel(config),
     )
 

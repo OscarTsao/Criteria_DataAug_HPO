@@ -1,10 +1,15 @@
 """PyTorch Dataset for DSM-5 NLI."""
 
-from typing import Dict
+import multiprocessing as mp
+import random
+import warnings
+from typing import Dict, Optional
 
 import pandas as pd
 import torch
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import DataLoader, Dataset
+
+from criteria_bge_hpo.data.augmentation import AugmentationFactory
 
 
 class DSM5NLIDataset(Dataset):
@@ -20,7 +25,8 @@ class DSM5NLIDataset(Dataset):
         tokenizer,
         max_length: int = 512,
         verify_format: bool = False,
-        model_name: str = None,
+        model_name: Optional[str] = None,
+        augment_config=None,
     ):
         """Initialize dataset.
 
@@ -30,9 +36,12 @@ class DSM5NLIDataset(Dataset):
             max_length: Maximum sequence length
             verify_format: Whether to validate column presence (debug helper)
             model_name: Model name for detecting token_type_ids support (optional)
+            augment_config: Optional augmentation config namespace
         """
         if verify_format:
             required_columns = {"post", "criterion", "label"}
+            if augment_config is not None:
+                required_columns.add("evidence_text")
             missing = required_columns - set(data.columns)
             if missing:
                 raise ValueError(f"DSM5NLIDataset missing required columns: {sorted(missing)}")
@@ -40,9 +49,9 @@ class DSM5NLIDataset(Dataset):
         self.data = data.reset_index(drop=True)
         self.tokenizer = tokenizer
         self.max_length = max_length
-
+        self.augment_config = augment_config
+        self.augmenter = AugmentationFactory.get_augmenter(augment_config)
         # Detect if tokenizer produces token_type_ids
-        # RoBERTa, DeBERTa, ModernBERT tokenizers don't generate them
         test_encoding = self.tokenizer("test", "test", return_tensors="pt")
         self.has_token_type_ids = "token_type_ids" in test_encoding
 
@@ -52,28 +61,56 @@ class DSM5NLIDataset(Dataset):
     def __getitem__(self, idx: int) -> Dict[str, torch.Tensor]:
         """Get a single sample."""
         row = self.data.iloc[idx]
+        label_value = int(row["label"])
+        post_text = str(row["post"])
+        criterion_text = str(row["criterion"])
 
-        # Tokenize: [CLS] post [SEP] criterion [SEP]
+        if self.augmenter:
+            evidence_text = str(row.get("evidence_text", "") or "").strip()
+            prob = float(getattr(self.augment_config, "prob", 0.0) or 0.0)
+            should_augment = (
+                label_value == 1 and bool(evidence_text) and random.random() < prob
+            )
+            if should_augment:
+                try:
+                    augmented_span = self.augmenter(evidence_text)
+                    if isinstance(augmented_span, list):
+                        augmented_span = augmented_span[0]
+                    if evidence_text and evidence_text in post_text:
+                        post_text = post_text.replace(evidence_text, str(augmented_span), 1)
+                except Exception:
+                    # If augmentation fails for any reason, fall back to original text
+                    pass
+
         encoding = self.tokenizer(
-            str(row["post"]),
-            str(row["criterion"]),
+            post_text,
+            criterion_text,
             max_length=self.max_length,
             padding="max_length",
             truncation=True,
             return_tensors="pt",
         )
-
-        item = {
+        item: Dict[str, torch.Tensor] = {
             "input_ids": encoding["input_ids"].squeeze(0),
             "attention_mask": encoding["attention_mask"].squeeze(0),
-            "labels": torch.tensor(row["label"], dtype=torch.long),
+            "labels": torch.tensor(label_value, dtype=torch.long),
         }
-
-        # Only include token_type_ids if the tokenizer produces them
         if self.has_token_type_ids and "token_type_ids" in encoding:
             item["token_type_ids"] = encoding["token_type_ids"].squeeze(0)
-
         return item
+
+
+def _supports_multiprocessing() -> bool:
+    """Return True if Python multiprocessing primitives are usable."""
+    try:
+        ctx = mp.get_context()
+        queue = ctx.Queue(maxsize=1)
+        queue.put_nowait(None)
+        queue.close()
+        queue.join_thread()
+        return True
+    except (OSError, PermissionError):
+        return False
 
 
 def create_dataloaders(
@@ -91,20 +128,31 @@ def create_dataloaders(
     Returns:
         Tuple of (train_loader, val_loader)
     """
+    use_pin_memory = pin_memory and torch.cuda.is_available()
+
+    # Some sandboxes disable semaphores/shared memory; fall back to single-process loading
+    worker_count = num_workers
+    if worker_count > 0 and not _supports_multiprocessing():
+        warnings.warn(
+            "Multiprocessing dataloaders are not available; falling back to num_workers=0.",
+            RuntimeWarning,
+        )
+        worker_count = 0
+
     train_loader = DataLoader(
         train_dataset,
         batch_size=batch_size,
         shuffle=True,
-        num_workers=num_workers,
-        pin_memory=pin_memory,
+        num_workers=worker_count,
+        pin_memory=use_pin_memory,
     )
 
     val_loader = DataLoader(
         val_dataset,
         batch_size=batch_size,
         shuffle=False,
-        num_workers=num_workers,
-        pin_memory=pin_memory,
+        num_workers=worker_count,
+        pin_memory=use_pin_memory,
     )
 
     return train_loader, val_loader

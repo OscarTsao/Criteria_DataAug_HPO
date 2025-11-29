@@ -2,14 +2,15 @@
 Command-line interface for DSM-5 NLI Binary Classification.
 
 Usage:
-    python -m Project.cli train training.num_epochs=100 training.early_stopping_patience=20  # Run K-fold training
-    python -m Project.cli hpo --n-trials 500       # Run HPO
-    python -m Project.cli eval --fold 0            # Evaluate specific fold
+    python -m criteria_bge_hpo.cli train training.num_epochs=100 training.early_stopping_patience=20  # Run K-fold training
+    python -m criteria_bge_hpo.cli hpo --n-trials 500       # Run HPO
+    python -m criteria_bge_hpo.cli eval --fold 0            # Evaluate specific fold
 """
 
-import sys
+import copy
 import os
 import subprocess
+import sys
 from typing import Dict, Optional
 
 import hydra
@@ -23,23 +24,31 @@ import numpy as np
 from rich.console import Console
 from rich.table import Table
 
-from Project.data.preprocessing import load_and_preprocess_data
-from Project.data.dataset import DSM5NLIDataset, create_dataloaders
-from Project.models.bert_classifier import BERTClassifier
-from Project.training.kfold import create_kfold_splits, get_fold_statistics, display_fold_statistics
-from Project.training.trainer import Trainer, create_optimizer_and_scheduler
-from Project.evaluation.evaluator import (
+from criteria_bge_hpo.data.preprocessing import load_and_preprocess_data
+from criteria_bge_hpo.data.dataset import DSM5NLIDataset, create_dataloaders
+from criteria_bge_hpo.models.bert_classifier import BERTClassifier
+from criteria_bge_hpo.training.kfold import (
+    create_kfold_splits,
+    get_fold_statistics,
+    display_fold_statistics,
+)
+from criteria_bge_hpo.training.trainer import Trainer, create_optimizer_and_scheduler
+from criteria_bge_hpo.evaluation.evaluator import (
     Evaluator,
     display_per_criterion_results,
 )
-from Project.utils.reproducibility import (
+from criteria_bge_hpo.utils.reproducibility import (
     set_seed,
     enable_deterministic,
     get_device,
     verify_cuda_setup,
 )
-from Project.utils.mlflow_setup import setup_mlflow, log_config, start_run
-from Project.utils.visualization import print_header, print_config_summary, print_fold_summary
+from criteria_bge_hpo.utils.mlflow_setup import setup_mlflow, log_config, start_run
+from criteria_bge_hpo.utils.visualization import (
+    print_header,
+    print_config_summary,
+    print_fold_summary,
+)
 
 console = Console()
 os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
@@ -88,6 +97,8 @@ def run_single_fold(
     """
     console.print(f"\n[bold cyan]Fold {fold + 1}/{config.kfold.n_splits}[/bold cyan]\n")
 
+    augment_config = config.get("augmentation", None)
+
     # Create datasets
     train_dataset = DSM5NLIDataset(
         pairs_df.iloc[train_idx],
@@ -95,6 +106,7 @@ def run_single_fold(
         max_length=config.data.max_length,
         verify_format=(fold == 0),  # Verify format only for first fold
         model_name=config.model.model_name,
+        augment_config=augment_config,
     )
 
     val_dataset = DSM5NLIDataset(
@@ -381,12 +393,28 @@ def run_hpo_worker(config: DictConfig, n_trials: int, worker_id: Optional[int] =
 
         Samples hyperparameters and evaluates via K-fold CV.
         """
+        lr_space = config.hpo.search_space.learning_rate
+        wd_space = config.hpo.search_space.weight_decay
+
+        lr_type = str(lr_space.get("type", "loguniform")).lower()
+        wd_type = str(wd_space.get("type", "loguniform")).lower()
+
+        lr_log = lr_type.startswith("log")
+        wd_log = wd_type.startswith("log")
+
+        # Avoid Optuna errors when a log-uniform space has non-positive lower bound
+        if wd_log and wd_space.low <= 0:
+            wd_log = False
+            console.print(
+                f"{worker_prefix}[yellow]• weight_decay.low<=0 detected; using linear sampling[/yellow]"
+            )
+
         # Sample hyperparameters (using Optuna 3.x API)
         learning_rate = trial.suggest_float(
             "learning_rate",
-            config.hpo.search_space.learning_rate.low,
-            config.hpo.search_space.learning_rate.high,
-            log=True,
+            lr_space.low,
+            lr_space.high,
+            log=lr_log,
         )
 
         batch_size = trial.suggest_categorical(
@@ -396,9 +424,9 @@ def run_hpo_worker(config: DictConfig, n_trials: int, worker_id: Optional[int] =
 
         weight_decay = trial.suggest_float(
             "weight_decay",
-            config.hpo.search_space.weight_decay.low,
-            config.hpo.search_space.weight_decay.high,
-            log=True,
+            wd_space.low,
+            wd_space.high,
+            log=wd_log,
         )
 
         warmup_ratio = trial.suggest_float(
@@ -406,6 +434,35 @@ def run_hpo_worker(config: DictConfig, n_trials: int, worker_id: Optional[int] =
             config.hpo.search_space.warmup_ratio.low,
             config.hpo.search_space.warmup_ratio.high,
         )
+
+        augmentation_cfg = copy.deepcopy(config.get("augmentation", None))
+        aug_enable_space = config.hpo.search_space.get("aug_enable", None)
+        if augmentation_cfg is not None and aug_enable_space is not None:
+            aug_enable = trial.suggest_categorical("aug_enable", aug_enable_space.choices)
+            if aug_enable:
+                aug_prob_space = config.hpo.search_space.aug_prob
+                aug_method_space = config.hpo.search_space.aug_method
+                augmentation_cfg.enable = True
+                augmentation_cfg.prob = trial.suggest_float(
+                    "aug_prob",
+                    aug_prob_space.low,
+                    aug_prob_space.high,
+                )
+                augmentation_cfg.type = trial.suggest_categorical(
+                    "aug_method", aug_method_space.choices
+                )
+            else:
+                augmentation_cfg.enable = False
+        else:
+            augmentation_cfg = None
+
+        num_epochs = config.training.num_epochs
+        epoch_space = config.hpo.search_space.get("epochs", None)
+        if epoch_space is not None:
+            num_epochs = trial.suggest_categorical(
+                "epochs",
+                epoch_space.choices,
+            )
 
         console.print(f"\n{worker_prefix}[bold magenta]Trial {trial.number}[/bold magenta]")
         console.print(f"  LR: {learning_rate:.2e}, BS: {batch_size}")
@@ -424,6 +481,7 @@ def run_hpo_worker(config: DictConfig, n_trials: int, worker_id: Optional[int] =
                     tokenizer,
                     max_length=config.data.max_length,
                     model_name=config.model.model_name,
+                    augment_config=augmentation_cfg,
                 )
 
                 val_dataset = DSM5NLIDataset(
@@ -453,7 +511,7 @@ def run_hpo_worker(config: DictConfig, n_trials: int, worker_id: Optional[int] =
                 optimizer, scheduler = create_optimizer_and_scheduler(
                     model,
                     train_loader,
-                    num_epochs=config.training.num_epochs,
+                    num_epochs=num_epochs,
                     learning_rate=learning_rate,
                     weight_decay=weight_decay,
                     warmup_ratio=warmup_ratio,
@@ -479,7 +537,7 @@ def run_hpo_worker(config: DictConfig, n_trials: int, worker_id: Optional[int] =
                 )
 
                 # Train with configured epochs (HPO will control runtime via trials/early stopping)
-                trainer.train(num_epochs=config.training.num_epochs, fold=fold)
+                trainer.train(num_epochs=num_epochs, fold=fold)
 
                 # Get best F1
                 fold_f1 = trainer.best_val_f1
@@ -615,7 +673,7 @@ def run_hpo_parallel(
         cmd = [
             sys.executable,
             "-m",
-            "Project.cli",
+            "criteria_bge_hpo.cli",
             "command=hpo_worker",
             f"hpo_worker.worker_id={worker_id}",
             f"hpo_worker.n_trials={n_trials_per_worker}",
@@ -636,7 +694,7 @@ def run_hpo_parallel(
 
     console.print(f"\n[green]✓[/green] Launched {n_workers} workers\n")
     console.print("[yellow]Workers are running in background. Monitor progress with:[/yellow]")
-    console.print("  python -m Project.cli command=hpo_status\n")
+    console.print("  python -m criteria_bge_hpo.cli command=hpo_status\n")
 
     return processes
 
@@ -712,7 +770,7 @@ def run_eval(config: DictConfig, fold: int = 0):
     console.print(f"Loading model from: {checkpoint_path}")
     if not os.path.exists(checkpoint_path):
         console.print(f"[red]Error:[/red] Checkpoint not found at {checkpoint_path}")
-        console.print("Run training first: python -m Project.cli command=train")
+        console.print("Run training first: python -m criteria_bge_hpo.cli command=train")
         sys.exit(1)
 
     model = BERTClassifier.from_pretrained(checkpoint_path)
@@ -749,10 +807,10 @@ def main(config: DictConfig):
         )
         console.print("\nExamples:")
         console.print(
-            "  python -m Project.cli command=train training.num_epochs=100 training.early_stopping_patience=20"
+            "  python -m criteria_bge_hpo.cli command=train training.num_epochs=100 training.early_stopping_patience=20"
         )
-        console.print("  python -m Project.cli command=hpo n_trials=500")
-        console.print("  python -m Project.cli command=eval fold=0")
+        console.print("  python -m criteria_bge_hpo.cli command=hpo n_trials=500")
+        console.print("  python -m criteria_bge_hpo.cli command=eval fold=0")
         sys.exit(1)
 
     if command == "train":
