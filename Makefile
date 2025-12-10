@@ -7,7 +7,7 @@
 # ============================================================================
 
 # Declare all targets as phony (not actual files)
-.PHONY: help setup train hpo eval clean test lint format
+.PHONY: help setup train hpo hpo_deberta_base_noaug hpo_deberta_base_aug hpo_deberta_base_nli_noaug hpo_deberta_base_nli_aug eval clean test lint format
 
 # Default tracking backends (override via env if needed)
 MLFLOW_URI ?= file:mlruns
@@ -15,6 +15,14 @@ OPTUNA_URI ?= sqlite:///optuna.db
 PYTHON ?= python3
 N_TRIALS ?= 500
 EXTRA_ARGS ?=
+
+# Common override bundles for HPO launchers
+HPO_COMMON := training.num_epochs=100 training.early_stopping_patience=20
+HPO_AUG_OFF := augmentation.enable=false hpo.search_space.aug_enable.choices=[false]
+HPO_AUG_ON := augmentation.enable=true hpo.search_space.aug_enable.choices=[true]
+DEBERTA_V3_BASE := model=deberta_nli model.model_name=microsoft/deberta-v3-base
+DEBERTA_V3_BASE_NLI := model=deberta_nli model.model_name=MoritzLaurer/DeBERTa-v3-base-mnli-fever-anli
+
 # Ensure this repo's src/ is first on PYTHONPATH (avoids picking up other editable installs)
 PYTHONPATH := $(CURDIR)/src$(if $(PYTHONPATH),:$(PYTHONPATH),)
 export PYTHONPATH
@@ -29,6 +37,10 @@ help:
 	@echo "  setup    - Install dependencies and setup environment"
 	@echo "  train    - Run 5-fold cross-validation training"
 	@echo "  hpo      - Run hyperparameter optimization (500 trials)"
+	@echo "  hpo_deberta_base_noaug      - HPO with DeBERTa v3 base, augmentation off"
+	@echo "  hpo_deberta_base_aug        - HPO with DeBERTa v3 base, augmentation on"
+	@echo "  hpo_deberta_base_nli_noaug  - HPO with DeBERTa v3 base (NLI ckpt), augmentation off"
+	@echo "  hpo_deberta_base_nli_aug    - HPO with DeBERTa v3 base (NLI ckpt), augmentation on"
 	@echo "  eval     - Evaluate fold 0"
 	@echo "  clean    - Clean outputs, cache, and logs"
 	@echo "  test     - Run tests"
@@ -64,7 +76,19 @@ train:
 # Results stored in SQLite (Optuna) and MLflow by default
 # Pass EXTRA_ARGS for Hydra overrides (e.g., hpo.search_space.threshold_mode=global)
 hpo:
-	MLFLOW_TRACKING_URI=$(MLFLOW_URI) OPTUNA_STORAGE=$(OPTUNA_URI) $(PYTHON) -m criteria_bge_hpo.cli command=hpo n_trials=$(N_TRIALS) training.num_epochs=100 training.early_stopping_patience=20 $(EXTRA_ARGS)
+	MLFLOW_TRACKING_URI=$(MLFLOW_URI) OPTUNA_STORAGE=$(OPTUNA_URI) $(PYTHON) -m criteria_bge_hpo.cli command=hpo n_trials=$(N_TRIALS) $(HPO_COMMON) $(EXTRA_ARGS)
+
+hpo_deberta_base_noaug:
+	MLFLOW_TRACKING_URI=$(MLFLOW_URI) OPTUNA_STORAGE=$(OPTUNA_URI) $(PYTHON) -m criteria_bge_hpo.cli command=hpo n_trials=$(N_TRIALS) $(DEBERTA_V3_BASE) experiment_name=deberta_v3_base_noaug hpo.study_name=pc_ce_debv3_base_noaug $(HPO_AUG_OFF) $(HPO_COMMON) $(EXTRA_ARGS)
+
+hpo_deberta_base_aug:
+	MLFLOW_TRACKING_URI=$(MLFLOW_URI) OPTUNA_STORAGE=$(OPTUNA_URI) $(PYTHON) -m criteria_bge_hpo.cli command=hpo n_trials=$(N_TRIALS) $(DEBERTA_V3_BASE) experiment_name=deberta_v3_base_aug hpo.study_name=pc_ce_debv3_base_aug $(HPO_AUG_ON) $(HPO_COMMON) $(EXTRA_ARGS)
+
+hpo_deberta_base_nli_noaug:
+	MLFLOW_TRACKING_URI=$(MLFLOW_URI) OPTUNA_STORAGE=$(OPTUNA_URI) $(PYTHON) -m criteria_bge_hpo.cli command=hpo n_trials=$(N_TRIALS) $(DEBERTA_V3_BASE_NLI) experiment_name=deberta_v3_base_nli_noaug hpo.study_name=pc_ce_debv3_base_nli_noaug $(HPO_AUG_OFF) $(HPO_COMMON) $(EXTRA_ARGS)
+
+hpo_deberta_base_nli_aug:
+	MLFLOW_TRACKING_URI=$(MLFLOW_URI) OPTUNA_STORAGE=$(OPTUNA_URI) $(PYTHON) -m criteria_bge_hpo.cli command=hpo n_trials=$(N_TRIALS) $(DEBERTA_V3_BASE_NLI) experiment_name=deberta_v3_base_nli_aug hpo.study_name=pc_ce_debv3_base_nli_aug $(HPO_AUG_ON) $(HPO_COMMON) $(EXTRA_ARGS)
 
 # ============================================================================
 # EVAL - Evaluate a specific fold (not yet implemented)
