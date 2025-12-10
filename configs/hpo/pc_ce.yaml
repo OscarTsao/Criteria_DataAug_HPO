@@ -36,9 +36,6 @@ search_space:
   scheduler:
     type: categorical
     choices: [linear, cosine]
-  epochs:
-    type: categorical
-    choices: [3, 4]
   batch_size:
     type: categorical
     choices: [8, 16]
@@ -178,7 +175,7 @@ fixed:
   early_stopping:
     metric: "macro_f1_post_calibrated"
     mode: "max"
-    patience: 1
+    patience: 20
     min_delta: 0.001
   calibration:
     enable: true
@@ -201,7 +198,7 @@ fixed:
     learning_rate: 1.5e-5
     weight_decay: 0.01
     warmup_ratio: 0.06
-    epochs: 3
+    epochs: 100
     batch_size: 16
     grad_accum: 2
     lora_r: 16

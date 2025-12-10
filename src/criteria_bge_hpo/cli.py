@@ -457,12 +457,6 @@ def run_hpo_worker(config: DictConfig, n_trials: int, worker_id: Optional[int] =
             augmentation_cfg = None
 
         num_epochs = config.training.num_epochs
-        epoch_space = config.hpo.search_space.get("epochs", None)
-        if epoch_space is not None:
-            num_epochs = trial.suggest_categorical(
-                "epochs",
-                epoch_space.choices,
-            )
 
         console.print(f"\n{worker_prefix}[bold magenta]Trial {trial.number}[/bold magenta]")
         console.print(f"  LR: {learning_rate:.2e}, BS: {batch_size}")
