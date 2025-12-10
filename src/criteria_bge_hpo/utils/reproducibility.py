@@ -23,15 +23,21 @@ def set_seed(seed: int):
 
 def enable_deterministic(deterministic: bool = True, tf32: bool = True):
     """Configure determinism and TF32 support according to config."""
+    deterministic_mode = False
+    if deterministic:
+        console.print(
+            "[yellow]ℹ[/yellow] Deterministic algorithms requested but force-disabled"
+        )
+
     # Configure deterministic behavior (warn only to avoid hard errors on unsupported ops)
     try:
-        torch.use_deterministic_algorithms(deterministic, warn_only=True)
+        torch.use_deterministic_algorithms(deterministic_mode, warn_only=True)
     except RuntimeError as exc:
         console.print(f"[yellow]⚠[/yellow] Deterministic config warning: {exc}")
 
     if torch.cuda.is_available():
-        torch.backends.cudnn.benchmark = not deterministic
-        torch.backends.cudnn.deterministic = deterministic
+        torch.backends.cudnn.benchmark = not deterministic_mode
+        torch.backends.cudnn.deterministic = deterministic_mode
         torch.backends.cuda.matmul.allow_tf32 = tf32
         torch.backends.cudnn.allow_tf32 = tf32
         state = "enabled" if tf32 else "disabled"
@@ -39,10 +45,7 @@ def enable_deterministic(deterministic: bool = True, tf32: bool = True):
     else:
         console.print("[yellow]⚠[/yellow] CUDA not available; TF32 flag ignored")
 
-    if deterministic:
-        console.print("[green]✓[/green] Deterministic mode enabled")
-    else:
-        console.print("[yellow]ℹ[/yellow] Deterministic algorithms disabled (performance mode)")
+    console.print("[yellow]ℹ[/yellow] Deterministic algorithms disabled (performance mode)")
 
 
 def get_device():

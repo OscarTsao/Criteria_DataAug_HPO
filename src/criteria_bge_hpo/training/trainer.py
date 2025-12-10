@@ -116,12 +116,9 @@ class Trainer:
         self.best_state_dict = None
         self.positive_threshold = positive_threshold
 
-        # Apply torch.compile if requested
-        if use_compile and torch.cuda.is_available():
-            try:
-                self.model = torch.compile(self.model, mode="reduce-overhead")
-            except RuntimeError:
-                pass
+        # torch.compile is disabled to avoid runtime instability; keep eager execution
+        if use_compile:
+            tqdm.write("torch.compile requested but disabled; running in eager mode")
 
         self.model.to(self.device)
         self.best_val_f1 = float("-inf")
