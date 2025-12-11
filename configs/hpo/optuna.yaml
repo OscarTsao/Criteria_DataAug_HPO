@@ -85,15 +85,27 @@ search_space:
     low: 5e-6
     high: 3e-5
 
-  # batch_size: Training batch size
+  # target_effective_batch_size: Effective batch size after gradient accumulation
   #   - type: categorical - discrete choices only
-  #   - Choices: [4, 8, 16] - XLM-R large reranker is memory intensive
-  #   - 4: Safest for limited memory
-  #   - 8: Balanced (default)
-  #   - 16: Faster but high memory
-  batch_size:
+  #   - Choices: [32, 64, 128] - controls optimization dynamics
+  #   - Physical batch size is auto-detected per GPU
+  #   - Gradient accumulation steps calculated automatically
+  #   - 32: Conservative, faster iterations
+  #   - 64: Balanced (default)
+  #   - 128: Larger batches, more stable gradients
+  target_effective_batch_size:
     type: categorical
-    choices: [4, 8, 16]
+    choices: [32, 64, 128]
+
+  # scheduler_type: Learning rate scheduler
+  #   - type: categorical - discrete choices
+  #   - Choices: [linear, cosine, cosine_with_restarts]
+  #   - linear: Constant decay (default, stable)
+  #   - cosine: Smooth cosine decay (popular for transformers)
+  #   - cosine_with_restarts: Multiple cycles (helps escape local minima)
+  scheduler_type:
+    type: categorical
+    choices: [linear, cosine, cosine_with_restarts]
 
   # weight_decay: L2 regularization strength for AdamW
   #   - type: loguniform - log scale for order of magnitude search

@@ -27,6 +27,10 @@ from rich.table import Table
 from criteria_bge_hpo.data.preprocessing import load_and_preprocess_data
 from criteria_bge_hpo.data.dataset import DSM5NLIDataset, create_dataloaders
 from criteria_bge_hpo.models.bert_classifier import BERTClassifier
+from criteria_bge_hpo.utils.batch_size_finder import (
+    find_max_physical_batch_size,
+    calculate_gradient_accumulation_steps,
+)
 from criteria_bge_hpo.training.kfold import (
     create_kfold_splits,
     get_fold_statistics,
@@ -54,6 +58,45 @@ console = Console()
 os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
 
 
+def get_num_workers(config):
+    """Get optimal number of data loader workers."""
+    num_workers = config.training.num_workers
+    if num_workers == "auto":
+        cpu_count = os.cpu_count() or 4
+        return max(1, cpu_count - 2)
+    return int(num_workers)
+
+
+def detect_physical_batch_size_for_training(config, device):
+    """Detect maximum physical batch size for training."""
+    import torch
+
+    console.print("[cyan]Detecting maximum physical batch size...[/cyan]")
+
+    # Create model for batch size testing
+    model = BERTClassifier(
+        model_name=config.model.model_name,
+        num_labels=config.model.num_labels,
+    )
+    tokenizer = AutoTokenizer.from_pretrained(config.model.model_name)
+
+    physical_batch_size = find_max_physical_batch_size(
+        model=model,
+        tokenizer=tokenizer,
+        max_length=config.data.max_length,
+        device=device,
+        safety_margin=0.9,
+    )
+
+    # Clean up
+    del model
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+
+    console.print(f"[green]✓[/green] Detected physical batch size: {physical_batch_size}")
+    return physical_batch_size
+
+
 def _resolve_optuna_storage(storage_uri: str) -> str:
     """
     Ensure Optuna storage URIs using SQLite are absolute paths under Hydra's runtime cwd.
@@ -79,6 +122,9 @@ def run_single_fold(
     fold: int,
     tokenizer,
     device,
+    physical_batch_size: int = None,
+    gradient_accumulation_steps: int = 1,
+    num_workers: int = 4,
 ):
     """
     Train and evaluate a single fold.
@@ -91,10 +137,16 @@ def run_single_fold(
         fold: Fold number
         tokenizer: HuggingFace tokenizer
         device: Device to train on
+        physical_batch_size: Physical batch size (auto-detected if None)
+        gradient_accumulation_steps: Gradient accumulation steps
+        num_workers: Number of data loader workers
 
     Returns:
         Dictionary of validation metrics
     """
+    # Use config batch_size as fallback if physical_batch_size not provided
+    if physical_batch_size is None:
+        physical_batch_size = config.training.batch_size
     console.print(f"\n[bold cyan]Fold {fold + 1}/{config.kfold.n_splits}[/bold cyan]\n")
 
     augment_config = config.get("augmentation", None)
@@ -117,12 +169,14 @@ def run_single_fold(
     )
 
     # Create dataloaders
+    persistent_workers = config.training.get("persistent_workers", True) and num_workers > 0
     train_loader, val_loader = create_dataloaders(
         train_dataset,
         val_dataset,
-        batch_size=config.training.batch_size,
-        num_workers=config.training.num_workers,
+        batch_size=physical_batch_size,
+        num_workers=num_workers,
         pin_memory=config.training.pin_memory,
+        persistent_workers=persistent_workers,
     )
 
     # Create model
@@ -137,6 +191,7 @@ def run_single_fold(
     )
 
     # Create optimizer and scheduler
+    scheduler_type = config.training.get("scheduler_type", "linear")
     optimizer, scheduler = create_optimizer_and_scheduler(
         model,
         train_loader,
@@ -145,7 +200,8 @@ def run_single_fold(
         weight_decay=config.training.weight_decay,
         warmup_ratio=config.training.warmup_ratio,
         use_fused=config.training.optimization.fused_adamw,
-        gradient_accumulation_steps=config.training.gradient_accumulation_steps,
+        gradient_accumulation_steps=gradient_accumulation_steps,
+        scheduler_type=scheduler_type,
     )
 
     # Create trainer
@@ -158,7 +214,7 @@ def run_single_fold(
         device=device,
         use_bf16=config.training.optimization.use_bf16,
         use_compile=config.training.optimization.use_torch_compile,
-        gradient_accumulation_steps=config.training.gradient_accumulation_steps,
+        gradient_accumulation_steps=gradient_accumulation_steps,
         max_grad_norm=config.training.max_grad_norm,
         mlflow_enabled=True,
         early_stopping_patience=config.training.early_stopping_patience,
@@ -232,6 +288,20 @@ def run_kfold_training(config: DictConfig):
     tokenizer = AutoTokenizer.from_pretrained(config.model.model_name)
     console.print(f"[green]✓[/green] Loaded tokenizer: {config.model.model_name}\n")
 
+    # Detect optimal batch size
+    physical_batch_size = detect_physical_batch_size_for_training(config, device)
+
+    # Calculate gradient accumulation
+    target_effective_batch = config.training.get("target_effective_batch_size", 64)
+    gradient_accumulation_steps = calculate_gradient_accumulation_steps(
+        target_effective_batch, physical_batch_size
+    )
+    console.print(f"[cyan]Target effective batch size: {target_effective_batch}[/cyan]")
+    console.print(f"[cyan]Gradient accumulation steps: {gradient_accumulation_steps}[/cyan]\n")
+
+    # Get num_workers
+    num_workers = get_num_workers(config)
+
     # Train each fold
     fold_results = []
 
@@ -249,6 +319,9 @@ def run_kfold_training(config: DictConfig):
                 fold,
                 tokenizer,
                 device,
+                physical_batch_size=physical_batch_size,
+                gradient_accumulation_steps=gradient_accumulation_steps,
+                num_workers=num_workers,
             )
 
             fold_results.append(metrics)
@@ -384,6 +457,12 @@ def run_hpo_worker(config: DictConfig, n_trials: int, worker_id: Optional[int] =
     # Load tokenizer
     tokenizer = AutoTokenizer.from_pretrained(config.model.model_name)
 
+    # Detect optimal batch size (once per worker, reused across trials)
+    physical_batch_size = detect_physical_batch_size_for_training(config, device)
+
+    # Get num_workers
+    num_workers = get_num_workers(config)
+
     # Set up MLflow
     setup_mlflow(config)
 
@@ -417,9 +496,21 @@ def run_hpo_worker(config: DictConfig, n_trials: int, worker_id: Optional[int] =
             log=lr_log,
         )
 
-        batch_size = trial.suggest_categorical(
-            "batch_size",
-            config.hpo.search_space.batch_size.choices,
+        # Sample target effective batch size (not physical batch size)
+        target_effective_batch_size = trial.suggest_categorical(
+            "target_effective_batch_size",
+            config.hpo.search_space.target_effective_batch_size.choices,
+        )
+
+        # Calculate gradient accumulation steps
+        gradient_accumulation_steps = calculate_gradient_accumulation_steps(
+            target_effective_batch_size, physical_batch_size
+        )
+
+        # Sample scheduler type
+        scheduler_type = trial.suggest_categorical(
+            "scheduler_type",
+            config.hpo.search_space.scheduler_type.choices,
         )
 
         weight_decay = trial.suggest_float(
@@ -459,7 +550,8 @@ def run_hpo_worker(config: DictConfig, n_trials: int, worker_id: Optional[int] =
         num_epochs = config.training.num_epochs
 
         console.print(f"\n{worker_prefix}[bold magenta]Trial {trial.number}[/bold magenta]")
-        console.print(f"  LR: {learning_rate:.2e}, BS: {batch_size}")
+        console.print(f"  LR: {learning_rate:.2e}, Effective BS: {target_effective_batch_size} (Physical: {physical_batch_size}, Accum: {gradient_accumulation_steps})")
+        console.print(f"  Scheduler: {scheduler_type}, WD: {weight_decay:.2e}, Warmup: {warmup_ratio:.3f}")
 
         # Run K-fold CV with sampled hyperparameters
         fold_scores = []
@@ -485,13 +577,15 @@ def run_hpo_worker(config: DictConfig, n_trials: int, worker_id: Optional[int] =
                     model_name=config.model.model_name,
                 )
 
-                # Create dataloaders with trial batch size
+                # Create dataloaders with physical batch size
+                persistent_workers = config.training.get("persistent_workers", True) and num_workers > 0
                 train_loader, val_loader = create_dataloaders(
                     train_dataset,
                     val_dataset,
-                    batch_size=batch_size,
-                    num_workers=config.training.num_workers,
+                    batch_size=physical_batch_size,
+                    num_workers=num_workers,
                     pin_memory=config.training.pin_memory,
+                    persistent_workers=persistent_workers,
                 )
 
                 # Create model with sampled configuration
@@ -510,7 +604,8 @@ def run_hpo_worker(config: DictConfig, n_trials: int, worker_id: Optional[int] =
                     weight_decay=weight_decay,
                     warmup_ratio=warmup_ratio,
                     use_fused=config.training.optimization.fused_adamw,
-                    gradient_accumulation_steps=config.training.gradient_accumulation_steps,
+                    gradient_accumulation_steps=gradient_accumulation_steps,
+                    scheduler_type=scheduler_type,
                 )
 
                 # Create trainer
@@ -523,7 +618,7 @@ def run_hpo_worker(config: DictConfig, n_trials: int, worker_id: Optional[int] =
                     device=device,
                     use_bf16=config.training.optimization.use_bf16,
                     use_compile=config.training.optimization.use_torch_compile,
-                    gradient_accumulation_steps=config.training.gradient_accumulation_steps,
+                    gradient_accumulation_steps=gradient_accumulation_steps,
                     max_grad_norm=config.training.max_grad_norm,
                     mlflow_enabled=False,  # Disable per-step logging during HPO
                     early_stopping_patience=config.training.early_stopping_patience,
@@ -531,7 +626,20 @@ def run_hpo_worker(config: DictConfig, n_trials: int, worker_id: Optional[int] =
                 )
 
                 # Train with configured epochs (HPO will control runtime via trials/early stopping)
-                trainer.train(num_epochs=num_epochs, fold=fold)
+                try:
+                    trainer.train(num_epochs=num_epochs, fold=fold)
+                except RuntimeError as e:
+                    if "out of memory" in str(e).lower():
+                        console.print(
+                            f"{worker_prefix}[red]OOM in trial {trial.number}, fold {fold} - pruning trial[/red]"
+                        )
+                        import torch
+                        import gc
+                        if torch.cuda.is_available():
+                            torch.cuda.empty_cache()
+                        gc.collect()
+                        raise optuna.TrialPruned()
+                    raise
 
                 # Get best F1
                 fold_f1 = trainer.best_val_f1

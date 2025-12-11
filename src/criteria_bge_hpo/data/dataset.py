@@ -114,7 +114,7 @@ def _supports_multiprocessing() -> bool:
 
 
 def create_dataloaders(
-    train_dataset, val_dataset, batch_size: int, num_workers: int = 4, pin_memory: bool = True
+    train_dataset, val_dataset, batch_size: int, num_workers: int = 4, pin_memory: bool = True, persistent_workers: bool = False
 ):
     """Create train and validation dataloaders.
 
@@ -124,6 +124,7 @@ def create_dataloaders(
         batch_size: Batch size
         num_workers: Number of dataloader workers
         pin_memory: Pin memory for faster GPU transfer
+        persistent_workers: Keep workers alive between epochs (only with num_workers > 0)
 
     Returns:
         Tuple of (train_loader, val_loader)
@@ -139,12 +140,16 @@ def create_dataloaders(
         )
         worker_count = 0
 
+    # persistent_workers only works with num_workers > 0
+    use_persistent = persistent_workers and worker_count > 0
+
     train_loader = DataLoader(
         train_dataset,
         batch_size=batch_size,
         shuffle=True,
         num_workers=worker_count,
         pin_memory=use_pin_memory,
+        persistent_workers=use_persistent,
     )
 
     val_loader = DataLoader(
@@ -153,6 +158,7 @@ def create_dataloaders(
         shuffle=False,
         num_workers=worker_count,
         pin_memory=use_pin_memory,
+        persistent_workers=use_persistent,
     )
 
     return train_loader, val_loader
