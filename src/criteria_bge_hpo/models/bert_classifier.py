@@ -34,6 +34,7 @@ class BERTClassifier(nn.Module):
         self.model = AutoModelForSequenceClassification.from_pretrained(
             model_name,
             config=self.config,
+            ignore_mismatched_sizes=True,
         )
         self.num_labels = self.model.config.num_labels
 

@@ -1,10 +1,11 @@
 """Training loop with GPU optimizations."""
 
+import gc
 import math
 
 import torch
-from tqdm import tqdm
-from transformers import get_linear_schedule_with_warmup
+from tqdm.rich import tqdm
+from transformers import get_scheduler
 
 
 def create_optimizer_and_scheduler(
@@ -16,6 +17,7 @@ def create_optimizer_and_scheduler(
     warmup_ratio,
     use_fused,
     gradient_accumulation_steps=1,
+    scheduler_type="linear",
 ):
     """Create optimizer and scheduler.
 
@@ -27,6 +29,8 @@ def create_optimizer_and_scheduler(
         weight_decay: Weight decay
         warmup_ratio: Warmup ratio
         use_fused: Use fused AdamW
+        gradient_accumulation_steps: Gradient accumulation steps
+        scheduler_type: Learning rate scheduler type (linear, cosine, etc.)
 
     Returns:
         Tuple of (optimizer, scheduler)
@@ -70,8 +74,9 @@ def create_optimizer_and_scheduler(
     num_training_steps = effective_batch_per_epoch * num_epochs
     num_warmup_steps = int(num_training_steps * warmup_ratio)
 
-    scheduler = get_linear_schedule_with_warmup(
-        optimizer,
+    scheduler = get_scheduler(
+        name=scheduler_type,
+        optimizer=optimizer,
         num_warmup_steps=num_warmup_steps,
         num_training_steps=num_training_steps,
     )
@@ -122,78 +127,96 @@ class Trainer:
 
         self.model.to(self.device)
         self.best_val_f1 = float("-inf")
+        self.oom_occurred = False
+
+    def _handle_oom(self):
+        """Handle out-of-memory errors during training."""
+        self.oom_occurred = True
+        tqdm.write("[OOM] CUDA out of memory - clearing cache")
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+        gc.collect()
+        self.optimizer.zero_grad()
 
     def train(self, num_epochs, fold):
         """Train for num_epochs."""
-        epochs_without_improvement = 0
-        patience = self.early_stopping_patience
+        try:
+            epochs_without_improvement = 0
+            patience = self.early_stopping_patience
 
-        for epoch in range(1, num_epochs + 1):
-            # Train epoch
-            self.model.train()
-            total_loss = 0
+            for epoch in range(1, num_epochs + 1):
+                # Train epoch
+                self.model.train()
+                total_loss = 0
 
-            progress_bar = tqdm(self.train_loader, desc=f"Epoch {epoch}/{num_epochs}")
+                progress_bar = tqdm(self.train_loader, desc=f"Epoch {epoch}/{num_epochs}")
 
-            for step, batch in enumerate(progress_bar):
-                batch = {k: v.to(self.device) for k, v in batch.items()}
+                for step, batch in enumerate(progress_bar):
+                    batch = {k: v.to(self.device) for k, v in batch.items()}
 
-                # Forward
-                with torch.amp.autocast('cuda', enabled=self.use_bf16, dtype=torch.bfloat16):
-                    outputs = self.model(**batch)
-                    loss = outputs["loss"] / self.gradient_accumulation_steps
+                    # Forward
+                    with torch.amp.autocast('cuda', enabled=self.use_bf16, dtype=torch.bfloat16):
+                        outputs = self.model(**batch)
+                        loss = outputs["loss"] / self.gradient_accumulation_steps
 
-                # Backward
-                loss.backward()
-                total_loss += loss.item() * self.gradient_accumulation_steps
+                    # Backward
+                    loss.backward()
+                    total_loss += loss.item() * self.gradient_accumulation_steps
 
-                # Update weights
-                if (step + 1) % self.gradient_accumulation_steps == 0:
-                    if self.max_grad_norm > 0:
-                        torch.nn.utils.clip_grad_norm_(
-                            self.model.parameters(), self.max_grad_norm
-                        )
-                    self.optimizer.step()
-                    self.scheduler.step()
-                    self.optimizer.zero_grad()
+                    # Update weights
+                    if (step + 1) % self.gradient_accumulation_steps == 0:
+                        if self.max_grad_norm > 0:
+                            torch.nn.utils.clip_grad_norm_(
+                                self.model.parameters(), self.max_grad_norm
+                            )
+                        self.optimizer.step()
+                        self.scheduler.step()
+                        self.optimizer.zero_grad()
 
-            progress_bar.set_postfix({"loss": f"{total_loss / (step+1):.4f}"})
+                progress_bar.set_postfix({"loss": f"{total_loss / (step+1):.4f}"})
 
-            # Evaluate
-            val_f1 = self._evaluate()
-            if val_f1 > self.best_val_f1:
-                self.best_val_f1 = val_f1
-                self.best_epoch = epoch
-                epochs_without_improvement = 0
+                # Evaluate
+                val_f1 = self._evaluate()
+                if val_f1 > self.best_val_f1:
+                    self.best_val_f1 = val_f1
+                    self.best_epoch = epoch
+                    epochs_without_improvement = 0
 
-                model_to_save = self._get_unwrapped_model()
-                self._store_best_state(model_to_save)
+                    model_to_save = self._get_unwrapped_model()
+                    self._store_best_state(model_to_save)
 
-                # Save best model to disk if requested
-                if self.checkpoint_dir:
-                    import os
+                    # Save best model to disk if requested
+                    if self.checkpoint_dir:
+                        import os
 
-                    model_save_dir = os.path.join(self.checkpoint_dir, f"fold_{fold}")
-                    model_to_save.save_pretrained(model_save_dir)
-                    if self.mlflow_enabled:
-                        tqdm.write(
-                            f"Saved new best model to {model_save_dir} (F1: {val_f1:.4f})"
-                        )
+                        model_save_dir = os.path.join(self.checkpoint_dir, f"fold_{fold}")
+                        model_to_save.save_pretrained(model_save_dir)
+                        if self.mlflow_enabled:
+                            tqdm.write(
+                                f"Saved new best model to {model_save_dir} (F1: {val_f1:.4f})"
+                            )
+                else:
+                    epochs_without_improvement += 1
+
+                if (
+                    patience is not None
+                    and patience > 0
+                    and epochs_without_improvement >= patience
+                ):
+                    tqdm.write(
+                        f"Early stopping triggered at epoch {epoch} "
+                        f"(best F1 {self.best_val_f1:.4f} at epoch {self.best_epoch})"
+                    )
+                    break
+
+            self._restore_best_state()
+
+        except RuntimeError as e:
+            if "out of memory" in str(e).lower():
+                self._handle_oom()
+                raise
             else:
-                epochs_without_improvement += 1
-
-            if (
-                patience is not None
-                and patience > 0
-                and epochs_without_improvement >= patience
-            ):
-                tqdm.write(
-                    f"Early stopping triggered at epoch {epoch} "
-                    f"(best F1 {self.best_val_f1:.4f} at epoch {self.best_epoch})"
-                )
-                break
-
-        self._restore_best_state()
+                raise
 
     @torch.no_grad()
     def _evaluate(self):
