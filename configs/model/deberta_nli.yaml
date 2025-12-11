@@ -1,0 +1,37 @@
+# ============================================================================
+# DeBERTa-v3 NLI Model Configuration
+# ============================================================================
+# DeBERTa-v3-base pretrained on NLI tasks (MNLI, FEVER, ANLI)
+# Recommended for criteria matching due to NLI pretraining
+# ============================================================================
+
+# Hugging Face model identifier (Base model, will be fine-tuned for binary classification)
+# Note: NLI-pretrained models (MoritzLaurer/DeBERTa-v3-base-mnli-fever-anli) have 3 output classes
+# and cause size mismatch errors for binary classification. Using base model instead.
+model_name: microsoft/deberta-v3-base
+
+# Number of labels for binary classification
+num_labels: 2
+
+# Optionally freeze the encoder and train only the classification head
+freeze_backbone: false
+
+# Classifier head architecture
+# Options: linear, pooler_linear, mlp1, mlp2, mean_pooling, max_pooling, attention_pooling
+classifier_head: max_pooling
+
+# Dropout rates (tuned via HPO)
+classifier_dropout: 0.3
+hidden_dropout: 0.1
+attention_dropout: 0.1
+
+# Loss function configuration
+# Options: focal, bce, weighted_bce
+loss_type: focal
+
+# Focal loss parameters (when using focal loss)
+focal_gamma: 2.0
+focal_alpha: null  # Auto-computed from class distribution if null
+
+# Decision threshold for positive class
+positive_threshold: 0.5
