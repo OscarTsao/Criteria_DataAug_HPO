@@ -555,6 +555,9 @@ def run_hpo_worker(config: DictConfig, n_trials: int, worker_id: Optional[int] =
 
         # Run K-fold CV with sampled hyperparameters
         fold_scores = []
+        best_fold_f1 = 0.0
+        folds_without_improvement = 0
+        patience_for_pruning = 3  # Prune after 3 consecutive folds without improvement
 
         with mlflow.start_run(run_name=f"trial_{trial.number}", nested=True):
             # Log trial parameters
@@ -645,13 +648,27 @@ def run_hpo_worker(config: DictConfig, n_trials: int, worker_id: Optional[int] =
                 fold_f1 = trainer.best_val_f1
                 fold_scores.append(fold_f1)
 
+                # Update patience tracking
+                if fold_f1 > best_fold_f1:
+                    best_fold_f1 = fold_f1
+                    folds_without_improvement = 0
+                else:
+                    folds_without_improvement += 1
+
                 # Report intermediate value for pruning
                 trial.report(fold_f1, fold)
 
-                # Prune if unpromising
+                # Prune by patience (consecutive folds without improvement)
+                if folds_without_improvement >= patience_for_pruning:
+                    console.print(
+                        f"{worker_prefix}[yellow]⚠[/yellow] Trial {trial.number} pruned by patience at fold {fold} ({patience_for_pruning} folds without improvement)"
+                    )
+                    raise optuna.TrialPruned()
+
+                # Prune by HyperbandPruner if unpromising
                 if trial.should_prune():
                     console.print(
-                        f"{worker_prefix}[yellow]⚠[/yellow] Trial {trial.number} pruned at fold {fold}"
+                        f"{worker_prefix}[yellow]⚠[/yellow] Trial {trial.number} pruned by Hyperband at fold {fold}"
                     )
                     raise optuna.TrialPruned()
 

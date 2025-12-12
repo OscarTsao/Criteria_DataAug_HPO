@@ -198,8 +198,8 @@ fixed:
       enabled: true
       p95_limit_relative: 0.30  # +30% vs baseline if pc_topM_enable is true
   hpo:
-    n_trials: 500
-    pruner: "MedianPruner"
+    n_trials: 2000
+    pruner: "HyperbandPruner"
     prune_after_n_steps: 1
     multi_seed_topk: 5
 
