@@ -19,7 +19,7 @@ from torch.utils.data import DataLoader
 from transformers import AutoTokenizer
 import mlflow
 import optuna
-from optuna.pruners import MedianPruner
+from optuna.pruners import MedianPruner, HyperbandPruner
 import numpy as np
 from rich.console import Console
 from rich.table import Table
@@ -668,11 +668,21 @@ def run_hpo_worker(config: DictConfig, n_trials: int, worker_id: Optional[int] =
         return mean_f1
 
     # Create Optuna study (load existing if available)
-    pruner = MedianPruner(
-        n_startup_trials=config.hpo.pruner.n_startup_trials,
-        n_warmup_steps=config.hpo.pruner.n_warmup_steps,
-        interval_steps=config.hpo.pruner.interval_steps,
-    )
+    # Create pruner based on config type
+    pruner_type = config.hpo.pruner.get("type", "MedianPruner")
+    if pruner_type == "HyperbandPruner":
+        pruner = HyperbandPruner(
+            min_resource=config.hpo.pruner.get("min_resource", 1),
+            max_resource=config.hpo.pruner.get("max_resource", 5),
+            reduction_factor=config.hpo.pruner.get("reduction_factor", 3),
+            bootstrap_count=config.hpo.pruner.get("bootstrap_count", 10),
+        )
+    else:  # Default to MedianPruner
+        pruner = MedianPruner(
+            n_startup_trials=config.hpo.pruner.get("n_startup_trials", 10),
+            n_warmup_steps=config.hpo.pruner.get("n_warmup_steps", 0),
+            interval_steps=config.hpo.pruner.get("interval_steps", 1),
+        )
 
     storage = _resolve_optuna_storage(config.hpo.storage)
     study = optuna.create_study(
