@@ -21,31 +21,35 @@ def set_seed(seed: int):
     console.print(f"[green]✓[/green] Set random seed: {seed}")
 
 
-def enable_deterministic(deterministic: bool = True, tf32: bool = True):
+def enable_deterministic(deterministic: bool = True, tf32: bool = True, enable_cudnn_benchmark: bool = True):
     """Configure determinism and TF32 support according to config."""
-    deterministic_mode = False
-    if deterministic:
-        console.print(
-            "[yellow]ℹ[/yellow] Deterministic algorithms requested but force-disabled"
-        )
-
-    # Configure deterministic behavior (warn only to avoid hard errors on unsupported ops)
-    try:
-        torch.use_deterministic_algorithms(deterministic_mode, warn_only=True)
-    except RuntimeError as exc:
-        console.print(f"[yellow]⚠[/yellow] Deterministic config warning: {exc}")
+    # Force non-deterministic for speed
+    torch.use_deterministic_algorithms(False)
+    console.print(
+        "[yellow]Deterministic algorithms: DISABLED (performance optimized)[/yellow]"
+    )
 
     if torch.cuda.is_available():
-        torch.backends.cudnn.benchmark = not deterministic_mode
-        torch.backends.cudnn.deterministic = deterministic_mode
-        torch.backends.cuda.matmul.allow_tf32 = tf32
-        torch.backends.cudnn.allow_tf32 = tf32
-        state = "enabled" if tf32 else "disabled"
-        console.print(f"[green]✓[/green] TF32 {state}")
+        # Force cudnn benchmark for speed
+        torch.backends.cudnn.benchmark = enable_cudnn_benchmark
+        console.print(
+            f"[yellow]cuDNN benchmark: {'ENABLED' if enable_cudnn_benchmark else 'DISABLED'} "
+            "(performance optimized)[/yellow]"
+        )
+
+        # TF32 configuration
+        if tf32:
+            torch.backends.cuda.matmul.allow_tf32 = True
+            torch.backends.cudnn.allow_tf32 = True
+            console.print(
+                "[green]TF32 enabled for matmul and cuDNN (Ampere+ GPUs)[/green]"
+            )
+        else:
+            torch.backends.cuda.matmul.allow_tf32 = False
+            torch.backends.cudnn.allow_tf32 = False
+            console.print("[yellow]TF32 disabled[/yellow]")
     else:
         console.print("[yellow]⚠[/yellow] CUDA not available; TF32 flag ignored")
-
-    console.print("[yellow]ℹ[/yellow] Deterministic algorithms disabled (performance mode)")
 
 
 def get_device():
@@ -79,3 +83,24 @@ def verify_cuda_setup():
     console.print(f"  Total Memory: {memory_total:.2f} GB")
     console.print(f"  BF16 Supported: {torch.cuda.is_bf16_supported()}")
     console.print("[cyan]═══════════════════════════════════════════════════════════[/cyan]\n")
+
+
+def setup_reproducibility(
+    seed: int,
+    enable_tf32: bool = True,
+    enable_cudnn_benchmark: bool = True,
+) -> None:
+    """
+    Complete reproducibility setup: set seed and configure PyTorch.
+
+    Args:
+        seed: Random seed value
+        enable_tf32: Enable TensorFloat-32 for Ampere+ GPUs
+        enable_cudnn_benchmark: Enable cudnn benchmarking
+    """
+    set_seed(seed)
+    enable_deterministic(
+        deterministic=False,
+        tf32=enable_tf32,
+        enable_cudnn_benchmark=enable_cudnn_benchmark,
+    )

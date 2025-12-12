@@ -123,12 +123,13 @@ warmup_ratio: 0.1
 # Controls for PyTorch DataLoader performance
 
 # num_workers: Number of subprocesses for data loading
-#   - Default: 4 (good balance for most systems)
+#   - Default: auto (CPU cores - 2)
 #   - Higher = faster data loading but more CPU/memory
 #   - 0 = single-process loading (slow but low overhead)
-#   - Recommended: num_cpu_cores / 2
+#   - Recommended: num_cpu_cores - 2 (leave 2 for main process)
 #   - Too high may cause slowdown due to GIL contention
-num_workers: 4
+#   - Set to 'auto' to use CPU cores - 2, or specify integer
+num_workers: auto
 
 # pin_memory: Pin CPU memory for faster GPU transfer
 #   - true: Faster host-to-device transfer (recommended with GPU)
@@ -136,3 +137,10 @@ num_workers: 4
 #   - Only beneficial when training on GPU
 #   - Increases CPU memory usage slightly
 pin_memory: true
+
+# persistent_workers: Keep worker processes alive between epochs
+#   - true: Faster epoch transitions, workers don't respawn
+#   - false: Workers destroyed/recreated each epoch
+#   - Only works when num_workers > 0
+#   - Recommended: true for faster training
+persistent_workers: true

@@ -1,6 +1,4 @@
-# ============================================================================
 # P–C Cross-Encoder HPO (BGE Reranker) with LoRA/QLoRA knobs and post-hoc eval
-# ============================================================================
 defaults:
   - _self_
 
@@ -34,18 +32,15 @@ search_space:
     type: uniform
     low: 0.0
     high: 0.2
-  scheduler:
+  scheduler_type:
     type: categorical
-    choices: [linear, cosine]
-  batch_size:
+    choices: [linear, cosine, cosine_with_restarts]
+  target_effective_batch_size:
     type: categorical
-    choices: [16, 32, 64, 128]
-  grad_accum:
-    type: categorical
-    choices: [1, 2, 4]
+    choices: [16, 32, 64, 128, 256]
   amp_dtype:
     type: categorical
-    choices: [bf16, fp16]
+    choices: [bf16]
   grad_clip:
     type: fixed
     value: 1.0
