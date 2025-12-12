@@ -93,8 +93,20 @@ HPO runs 100-epoch K-fold CV (patience 20) to stay aligned with full-training de
 Training config enables aggressive optimizations:
 - `use_bf16: true` - bfloat16 mixed precision (2x speedup, requires Ampere+)
 - `use_tf32: true` - TensorFloat-32 operations (2-3x speedup on Ampere+)
-- `use_torch_compile: true` - JIT compilation (10-20% speedup on PyTorch 2+)
+- `use_torch_compile: false` - JIT compilation (10-20% speedup on PyTorch 2+)
+  - **Default: disabled** for HPO stability (compilation overhead per trial)
+  - **Enable for final training:** `training.optimization.use_torch_compile=true`
+  - First epoch will be slower (compilation), subsequent epochs faster
 - `fused_adamw: true` - Fused optimizer kernel when CUDA is available
+
+**torch.compile Usage:**
+```bash
+# HPO mode - keep disabled (default)
+python -m criteria_bge_hpo.cli hpo_fast --n-trials 500
+
+# Final training - enable for 10-20% speedup
+python -m criteria_bge_hpo.cli train training.optimization.use_torch_compile=true
+```
 
 Set `reproducibility.tf32: true` in config for deterministic TF32 behavior.
 

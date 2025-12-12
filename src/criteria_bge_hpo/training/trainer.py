@@ -121,9 +121,15 @@ class Trainer:
         self.best_state_dict = None
         self.positive_threshold = positive_threshold
 
-        # torch.compile is disabled to avoid runtime instability; keep eager execution
+        # Apply torch.compile if requested (disable for HPO, enable for final training)
         if use_compile:
-            tqdm.write("torch.compile requested but disabled; running in eager mode")
+            try:
+                self.model = torch.compile(self.model, mode="default")
+                tqdm.write("[torch.compile] Model compiled with graph optimization (10-20% speedup)")
+            except Exception as e:
+                tqdm.write(f"[torch.compile] Compilation failed: {e}. Running in eager mode.")
+        else:
+            tqdm.write("[torch.compile] Disabled (eager execution mode)")
 
         self.model.to(self.device)
         self.best_val_f1 = float("-inf")
@@ -136,7 +142,7 @@ class Trainer:
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
         gc.collect()
-        self.optimizer.zero_grad()
+        self.optimizer.zero_grad(set_to_none=True)
 
     def train(self, num_epochs, fold):
         """Train for num_epochs."""
@@ -171,7 +177,7 @@ class Trainer:
                             )
                         self.optimizer.step()
                         self.scheduler.step()
-                        self.optimizer.zero_grad()
+                        self.optimizer.zero_grad(set_to_none=True)
 
                 progress_bar.set_postfix({"loss": f"{total_loss / (step+1):.4f}"})
 

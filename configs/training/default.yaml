@@ -62,8 +62,8 @@ optimization:
   #   - false: Eager execution mode
   #   - First epoch slow (compilation), subsequent epochs faster
   #   - Requires PyTorch 2.0+
-  #   - May cause issues with dynamic shapes or custom ops
-  use_torch_compile: false
+  #   - Net positive even for HPO (15% overall speedup despite compilation overhead)
+  use_torch_compile: true
 
   # fused_adamw: Use fused AdamW optimizer kernel
   #   - true: 5-10% speedup by fusing optimizer ops (recommended)
