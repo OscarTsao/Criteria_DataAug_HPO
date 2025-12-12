@@ -31,6 +31,7 @@ share/python-wheels/
 # Logs and databases
 *.log
 *.db
+*.pid
 
 # Jupyter
 .ipynb_checkpoints/
