@@ -10,6 +10,7 @@ import torch
 from torch.utils.data import DataLoader, Dataset
 
 from criteria_bge_hpo.data.augmentation import AugmentationFactory
+from criteria_bge_hpo.data.augmentation_stats import AugmentationStats
 
 
 class DSM5NLIDataset(Dataset):
@@ -51,6 +52,8 @@ class DSM5NLIDataset(Dataset):
         self.max_length = max_length
         self.augment_config = augment_config
         self.augmenter = AugmentationFactory.get_augmenter(augment_config)
+        self.augmentation_stats = AugmentationStats()
+        
         # Detect if tokenizer produces token_type_ids
         test_encoding = self.tokenizer("test", "test", return_tensors="pt")
         self.has_token_type_ids = "token_type_ids" in test_encoding
@@ -71,16 +74,24 @@ class DSM5NLIDataset(Dataset):
             should_augment = (
                 label_value == 1 and bool(evidence_text) and random.random() < prob
             )
-            if should_augment:
+            
+            if not should_augment:
+                self.augmentation_stats.record_skip()
+            else:
                 try:
                     augmented_span = self.augmenter(evidence_text)
                     if isinstance(augmented_span, list):
                         augmented_span = augmented_span[0]
                     if evidence_text and evidence_text in post_text:
                         post_text = post_text.replace(evidence_text, str(augmented_span), 1)
-                except Exception:
-                    # If augmentation fails for any reason, fall back to original text
-                    pass
+                    
+                    # Record successful augmentation
+                    method_name = getattr(self.augmenter, "name", "unknown")
+                    self.augmentation_stats.record_augmentation(method_name)
+                except Exception as e:
+                    # Record failure
+                    method_name = getattr(self.augmenter, "name", "unknown")
+                    self.augmentation_stats.record_failure(method_name, str(e))
 
         encoding = self.tokenizer(
             post_text,
@@ -98,6 +109,14 @@ class DSM5NLIDataset(Dataset):
         if self.has_token_type_ids and "token_type_ids" in encoding:
             item["token_type_ids"] = encoding["token_type_ids"].squeeze(0)
         return item
+
+    def get_augmentation_stats(self) -> Dict:
+        """Return augmentation statistics as dictionary."""
+        return self.augmentation_stats.to_dict()
+
+    def reset_augmentation_stats(self) -> None:
+        """Reset augmentation statistics."""
+        self.augmentation_stats.reset()
 
 
 def _supports_multiprocessing() -> bool:

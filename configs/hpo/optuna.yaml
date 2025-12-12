@@ -14,7 +14,7 @@
 #   - Each trial runs full 100-epoch K-fold CV (patience 20)
 #   - Higher = better hyperparameters but longer runtime
 #   - Typical values: 100-500 for medium search spaces; >500 for exhaustive search
-n_trials: 500
+n_trials: 2000
 
 # storage: Database backend for storing trial history
 #   - PostgreSQL recommended for parallel HPO (better concurrency)
@@ -47,26 +47,31 @@ direction: maximize
 # Early stopping for unpromising trials to save computation time
 pruner:
   # type: Pruning algorithm
-  #   - MedianPruner: Stops trials performing worse than median of previous trials
-  #   - More aggressive alternatives: SuccessiveHalvingPruner, HyperbandPruner
-  type: MedianPruner
+  #   - HyperbandPruner: Successive halving with aggressive early stopping
+  #   - More efficient than MedianPruner for large trial counts (2000+)
+  type: HyperbandPruner
 
-  # n_startup_trials: Number of initial trials to complete before pruning
-  #   - Default: 5 (gather baseline statistics first)
-  #   - Early trials establish median baseline for comparison
-  #   - Higher = more conservative pruning (fewer early stops)
-  n_startup_trials: 5
+  # min_resource: Minimum number of folds before first pruning check
+  #   - Default: 1 (can prune after first fold)
+  #   - Aggressive early stopping for unpromising trials
+  min_resource: 1
 
-  # n_warmup_steps: Number of steps (folds) before pruning can occur
-  #   - Default: 3 (wait until 3 folds complete)
-  #   - Prevents premature pruning based on first fold's variance
-  #   - With 5 folds total, pruning can occur after fold 3
-  n_warmup_steps: 3
+  # max_resource: Maximum number of folds (K in K-fold CV)
+  #   - Default: 5 (5-fold cross-validation)
+  #   - Top trials complete all 5 folds
+  max_resource: 5
 
-  # interval_steps: Check pruning condition every N steps (folds)
-  #   - Default: 1 (check after every fold)
-  #   - Higher = less frequent checks (e.g., 2 = check every 2 folds)
-  interval_steps: 1
+  # reduction_factor: Successive halving reduction factor (eta)
+  #   - Default: 4 (keep top 1/4 of trials at each stage)
+  #   - Aggressive pruning for 2000-trial optimization
+  #   - Higher = faster elimination, lower = more conservative
+  reduction_factor: 4
+
+  # bootstrap_count: Number of trials before pruning starts
+  #   - Default: 30 (gather sufficient baseline for 2000 trials)
+  #   - Higher for large-scale HPO to establish reliable pruning baseline
+  #   - ~1.5% of total trials used for bootstrap
+  bootstrap_count: 30
 
 # ============================================================================
 # HYPERPARAMETER SEARCH SPACE
@@ -77,41 +82,83 @@ pruner:
 search_space:
   # learning_rate: AdamW learning rate
   #   - type: loguniform - samples from log scale (better for orders of magnitude)
-  #   - Range: [5e-6, 3e-5] - conservative for XLM-R based reranker
-  #   - Examples: 6e-6, 1e-5, 2e-5
-  #   - Log scale ensures good coverage of 5e-6, 1e-5, 3e-5
+  #   - Range: [1e-6, 5e-5] - expanded range for comprehensive search
+  #   - Examples: 1e-6, 5e-6, 1e-5, 2e-5, 5e-5
+  #   - Log scale ensures good coverage across orders of magnitude
   learning_rate:
     type: loguniform
-    low: 5e-6
-    high: 3e-5
+    low: 1e-6
+    high: 5e-5
 
   # batch_size: Training batch size
   #   - type: categorical - discrete choices only
-  #   - Choices: [4, 8, 16] - XLM-R large reranker is memory intensive
-  #   - 4: Safest for limited memory
-  #   - 8: Balanced (default)
-  #   - 16: Faster but high memory
+  #   - Choices: [16, 32, 64, 128] - Updated for larger batch search
+  #   - Auto VRAM detection handles gradient accumulation if needed
+  #   - 16: Conservative baseline
+  #   - 32: Moderate (typical)
+  #   - 64: Large batch training
+  #   - 128: Very large batch (uses gradient accumulation)
   batch_size:
     type: categorical
-    choices: [4, 8, 16]
+    choices: [16, 32, 64, 128]
 
   # weight_decay: L2 regularization strength for AdamW
-  #   - type: loguniform - log scale for order of magnitude search
-  #   - Range: [0.001, 0.1] - wider than default 0.01
-  #   - Examples: 0.001, 0.01, 0.05, 0.1
-  #   - Prevents overfitting by penalizing large weights
+  #   - type: uniform - linear scale to include 0 (no regularization)
+  #   - Range: [0.0, 0.1] - includes no regularization to full regularization
+  #   - Examples: 0.0, 0.001, 0.01, 0.05, 0.1
+  #   - 0 = no regularization, higher values prevent overfitting
   weight_decay:
-    type: loguniform
-    low: 0.001
+    type: uniform
+    low: 0.0
     high: 0.1
 
   # warmup_ratio: Fraction of steps for LR warmup
   #   - type: uniform - linear sampling from range
-  #   - Range: [0.05, 0.15] - 5% to 15% of total steps
-  #   - Lower = shorter warmup (faster convergence, may be unstable)
+  #   - Range: [0.0, 0.2] - 0% to 20% of total steps
+  #   - 0 = no warmup (may converge faster but less stable)
   #   - Higher = longer warmup (more stable, slower convergence)
   #   - Warmup prevents initial instability in BERT fine-tuning
   warmup_ratio:
     type: uniform
-    low: 0.05
-    high: 0.15
+    low: 0.0
+    high: 0.2
+
+  # classifier_dropout: Dropout rate for classifier head
+  #   - type: uniform - linear sampling from range
+  #   - Range: [0.1, 0.5] - moderate to high dropout for regularization
+  #   - Higher = more regularization, prevents overfitting
+  #   - Applied to classification layer before final output
+  classifier_dropout:
+    type: uniform
+    low: 0.1
+    high: 0.5
+
+  # hidden_dropout: Dropout rate for transformer hidden layers
+  #   - type: uniform - linear sampling from range
+  #   - Range: [0.0, 0.3] - low to moderate dropout
+  #   - Applied throughout transformer encoder layers
+  #   - 0 = no dropout, higher values increase regularization
+  hidden_dropout:
+    type: uniform
+    low: 0.0
+    high: 0.3
+
+  # attention_dropout: Dropout rate for attention weights
+  #   - type: uniform - linear sampling from range
+  #   - Range: [0.0, 0.3] - low to moderate dropout
+  #   - Applied to attention probabilities in multi-head attention
+  #   - Helps prevent attention overfitting
+  attention_dropout:
+    type: uniform
+    low: 0.0
+    high: 0.3
+
+  # focal_gamma: Focusing parameter for focal loss
+  #   - type: categorical - discrete values
+  #   - Choices: [1.0, 2.0, 3.0] - controls focusing strength
+  #   - 1.0 = similar to cross-entropy
+  #   - 2.0 = standard focal loss (default)
+  #   - 3.0 = aggressive focusing on hard examples
+  focal_gamma:
+    type: categorical
+    choices: [1.0, 2.0, 3.0]

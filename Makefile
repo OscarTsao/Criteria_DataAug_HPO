@@ -7,13 +7,13 @@
 # ============================================================================
 
 # Declare all targets as phony (not actual files)
-.PHONY: help setup train hpo hpo_deberta_base_noaug hpo_deberta_base_aug hpo_deberta_base_nli_noaug hpo_deberta_base_nli_aug eval clean test lint format
+.PHONY: help setup train hpo hpo_deberta_base_noaug hpo_deberta_base_aug hpo_deberta_base_nli_noaug hpo_deberta_base_nli_aug hpo_status eval clean clean_logs test lint format
 
 # Default tracking backends (override via env if needed)
 MLFLOW_URI ?= file:mlruns
 OPTUNA_URI ?= sqlite:///optuna.db
 PYTHON ?= python3
-N_TRIALS ?= 500
+N_TRIALS ?= 2000
 EXTRA_ARGS ?=
 
 # Common override bundles for HPO launchers
@@ -41,8 +41,10 @@ help:
 	@echo "  hpo_deberta_base_aug        - HPO with DeBERTa v3 base, augmentation on"
 	@echo "  hpo_deberta_base_nli_noaug  - HPO with DeBERTa v3 base (NLI ckpt), augmentation off"
 	@echo "  hpo_deberta_base_nli_aug    - HPO with DeBERTa v3 base (NLI ckpt), augmentation on"
+	@echo "  hpo_status                  - Check HPO study progress"
 	@echo "  eval     - Evaluate fold 0"
-	@echo "  clean    - Clean outputs, cache, and logs"
+	@echo "  clean    - Clean outputs, cache, and test artifacts"
+	@echo "  clean_logs                  - Clean old log files"
 	@echo "  test     - Run tests"
 	@echo "  lint     - Run linting checks"
 	@echo "  format   - Format code with black"
@@ -91,7 +93,19 @@ hpo_deberta_base_nli_aug:
 	MLFLOW_TRACKING_URI=$(MLFLOW_URI) OPTUNA_STORAGE=$(OPTUNA_URI) $(PYTHON) -m criteria_bge_hpo.cli command=hpo n_trials=$(N_TRIALS) $(DEBERTA_V3_BASE_NLI) experiment_name=deberta_v3_base_nli_aug hpo.study_name=pc_ce_debv3_base_nli_aug $(HPO_AUG_ON) $(HPO_COMMON) $(EXTRA_ARGS)
 
 # ============================================================================
-# EVAL - Evaluate a specific fold (not yet implemented)
+# HPO STATUS - Check hyperparameter optimization progress
+# ============================================================================
+# Displays trial counts and completion status for all HPO studies
+# Shows COMPLETE, RUNNING, PRUNED, and FAILED trial counts per study
+hpo_status:
+	@echo "═══════════════════════════════════════════════════════"
+	@echo "              HPO Study Status"
+	@echo "═══════════════════════════════════════════════════════"
+	@$(PYTHON) tools/hpo_status.py
+	@echo ""
+
+# ============================================================================
+# EVAL - Evaluate a specific fold
 # ============================================================================
 # Loads trained model from fold 0 and runs evaluation
 # Displays per-criterion metrics and aggregate performance
@@ -103,23 +117,34 @@ eval:
 # ============================================================================
 # Deletes:
 #   - outputs/ - Model checkpoints and training artifacts
-#   - mlruns/ - MLflow experiment tracking data
-#   - optuna.db - HPO trial history
 #   - .pytest_cache/ - pytest cache
+#   - .coverage - Coverage report data
 #   - __pycache__/ - Python bytecode cache (all directories)
 #   - *.pyc - Compiled Python files
-# WARNING: This is destructive. Trained models will be lost.
+# WARNING: This does NOT delete mlruns/ or optuna.db (use with caution)
+# Note: Use 'make clean_logs' to remove old log files
 clean:
 	rm -rf outputs/
-	rm -rf mlruns/
-	rm -rf optuna.db
 	rm -rf .pytest_cache/
+	rm -rf .coverage htmlcov/
 	rm -rf __pycache__/
 	# Find and remove all __pycache__ directories recursively (ignore errors)
 	find . -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
 	# Find and remove all .pyc files recursively
 	find . -type f -name "*.pyc" -delete
-	@echo "✓ Cleaned all outputs and cache"
+	@echo "✓ Cleaned outputs, cache, and test artifacts"
+
+# ============================================================================
+# CLEAN LOGS - Remove old log files
+# ============================================================================
+# Deletes old *.log files in the root directory
+# Preserves mlruns/ and optuna.db
+# Use this to clean up accumulated log files from training/HPO runs
+clean_logs:
+	@echo "Removing old log files..."
+	rm -f *.log
+	rm -f nohup.out
+	@echo "✓ Cleaned log files"
 
 # ============================================================================
 # TEST - Run pytest test suite with coverage reporting

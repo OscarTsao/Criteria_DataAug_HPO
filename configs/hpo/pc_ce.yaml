@@ -5,16 +5,17 @@ defaults:
   - _self_
 
 # Core Optuna settings used by the existing CLI harness
-n_trials: 500
+n_trials: 2000
 storage: ${oc.env:OPTUNA_STORAGE,sqlite:///optuna.db}
 study_name: pc_ce_hpo
 direction: maximize
 
 pruner:
-  type: MedianPruner
-  n_startup_trials: 5
-  n_warmup_steps: 1
-  interval_steps: 1
+  type: HyperbandPruner
+  min_resource: 1
+  max_resource: 5
+  reduction_factor: 4
+  bootstrap_count: 30
 
 # ---------------------------------------------------------------------------
 # Search space (Optuna-style); condition keys are informational for now
@@ -23,22 +24,22 @@ search_space:
   # --- Core training knobs ---
   learning_rate:
     type: loguniform
-    low: 7.5e-6
-    high: 2.0e-5
+    low: 1e-6
+    high: 5e-5
   weight_decay:
     type: uniform
     low: 0.0
-    high: 0.10
+    high: 0.1
   warmup_ratio:
     type: uniform
-    low: 0.02
-    high: 0.10
+    low: 0.0
+    high: 0.2
   scheduler:
     type: categorical
     choices: [linear, cosine]
   batch_size:
     type: categorical
-    choices: [8, 16]
+    choices: [16, 32, 64, 128]
   grad_accum:
     type: categorical
     choices: [1, 2, 4]
@@ -48,6 +49,23 @@ search_space:
   grad_clip:
     type: fixed
     value: 1.0
+
+  # --- Model Architecture / Regularization ---
+  classifier_dropout:
+    type: uniform
+    low: 0.1
+    high: 0.5
+  hidden_dropout:
+    type: uniform
+    low: 0.0
+    high: 0.3
+  attention_dropout:
+    type: uniform
+    low: 0.0
+    high: 0.3
+  focal_gamma:
+    type: categorical
+    choices: [1.0, 2.0, 3.0]
 
   # --- LoRA / QLoRA ---
   lora_r:

@@ -19,7 +19,7 @@ from torch.utils.data import DataLoader
 from transformers import AutoTokenizer
 import mlflow
 import optuna
-from optuna.pruners import MedianPruner
+from optuna.pruners import HyperbandPruner
 import numpy as np
 from rich.console import Console
 from rich.table import Table
@@ -44,6 +44,11 @@ from criteria_bge_hpo.utils.reproducibility import (
     verify_cuda_setup,
 )
 from criteria_bge_hpo.utils.mlflow_setup import setup_mlflow, log_config, start_run
+from criteria_bge_hpo.utils.vram_utils import (
+    probe_max_batch_size,
+    calculate_gradient_accumulation,
+    get_gpu_vram_info,
+)
 from criteria_bge_hpo.utils.visualization import (
     print_header,
     print_config_summary,
@@ -116,11 +121,30 @@ def run_single_fold(
         model_name=config.model.model_name,
     )
 
+    # Determine batch sizes (support auto-detection or manual config)
+    if config.training.get("auto_detect_batch_size", False):
+        # Auto-detect max safe batch size
+        max_safe_batch = probe_max_batch_size(
+            model_name=config.model.model_name,
+            tokenizer=tokenizer,
+            max_length=config.data.max_length,
+            vram_headroom=config.training.get("vram_headroom", 0.10),
+            use_bf16=config.training.optimization.use_bf16,
+        )
+        train_batch_size = max_safe_batch
+        eval_batch_size = max_safe_batch
+        console.print(f"[green]✓[/green] Auto-detected batch size: {max_safe_batch}\n")
+    else:
+        # Use configured batch size
+        train_batch_size = config.training.batch_size
+        eval_batch_size = config.training.get("eval_batch_size", train_batch_size)
+
     # Create dataloaders
     train_loader, val_loader = create_dataloaders(
         train_dataset,
         val_dataset,
-        batch_size=config.training.batch_size,
+        train_batch_size=train_batch_size,
+        eval_batch_size=eval_batch_size,
         num_workers=config.training.num_workers,
         pin_memory=config.training.pin_memory,
     )
@@ -384,6 +408,25 @@ def run_hpo_worker(config: DictConfig, n_trials: int, worker_id: Optional[int] =
     # Load tokenizer
     tokenizer = AutoTokenizer.from_pretrained(config.model.model_name)
 
+    # VRAM detection for auto batch sizing
+    vram_info = get_gpu_vram_info()
+    console.print(
+        f"{worker_prefix}[cyan]GPU VRAM:[/cyan] {vram_info['total_gb']:.1f}GB total, "
+        f"{vram_info['available_gb']:.1f}GB available\n"
+    )
+
+    max_safe_batch = probe_max_batch_size(
+        model_name=config.model.model_name,
+        tokenizer=tokenizer,
+        max_length=config.data.max_length,
+        vram_headroom=config.training.get("vram_headroom", 0.10),
+        use_bf16=config.training.optimization.use_bf16,
+    )
+    console.print(f"{worker_prefix}[green]✓[/green] Max safe batch size: {max_safe_batch}\n")
+
+    # Fix eval batch size to maximum safe batch for efficiency
+    eval_batch_size = max_safe_batch
+
     # Set up MLflow
     setup_mlflow(config)
 
@@ -422,6 +465,12 @@ def run_hpo_worker(config: DictConfig, n_trials: int, worker_id: Optional[int] =
             config.hpo.search_space.batch_size.choices,
         )
 
+        # Calculate gradient accumulation if sampled batch size exceeds VRAM limit
+        physical_batch, grad_accum_steps = calculate_gradient_accumulation(
+            sampled_batch_size=batch_size,
+            max_safe_batch_size=max_safe_batch,
+        )
+
         weight_decay = trial.suggest_float(
             "weight_decay",
             wd_space.low,
@@ -434,6 +483,29 @@ def run_hpo_worker(config: DictConfig, n_trials: int, worker_id: Optional[int] =
             config.hpo.search_space.warmup_ratio.low,
             config.hpo.search_space.warmup_ratio.high,
         )
+
+        # Sample dropout rates if specified in search space
+        classifier_dropout = trial.suggest_float(
+            "classifier_dropout",
+            config.hpo.search_space.get("classifier_dropout", {}).get("low", 0.3),
+            config.hpo.search_space.get("classifier_dropout", {}).get("high", 0.3),
+        )
+
+        hidden_dropout = trial.suggest_float(
+            "hidden_dropout",
+            config.hpo.search_space.get("hidden_dropout", {}).get("low", 0.1),
+            config.hpo.search_space.get("hidden_dropout", {}).get("high", 0.1),
+        )
+
+        attention_dropout = trial.suggest_float(
+            "attention_dropout",
+            config.hpo.search_space.get("attention_dropout", {}).get("low", 0.1),
+            config.hpo.search_space.get("attention_dropout", {}).get("high", 0.1),
+        )
+
+        # Sample focal_gamma if specified in search space
+        focal_gamma_choices = config.hpo.search_space.get("focal_gamma", {}).get("choices", [2.0])
+        focal_gamma = trial.suggest_categorical("focal_gamma", focal_gamma_choices)
 
         augmentation_cfg = copy.deepcopy(config.get("augmentation", None))
         aug_enable_space = config.hpo.search_space.get("aug_enable", None)
@@ -459,10 +531,17 @@ def run_hpo_worker(config: DictConfig, n_trials: int, worker_id: Optional[int] =
         num_epochs = config.training.num_epochs
 
         console.print(f"\n{worker_prefix}[bold magenta]Trial {trial.number}[/bold magenta]")
-        console.print(f"  LR: {learning_rate:.2e}, BS: {batch_size}")
+        console.print(
+            f"  LR: {learning_rate:.2e}, BS: {batch_size} (Physical: {physical_batch}, GradAccum: {grad_accum_steps})"
+        )
 
         # Run K-fold CV with sampled hyperparameters
         fold_scores = []
+
+        # Patience-based pruning: Track fold performance for early stopping
+        best_fold_score = float("-inf")
+        folds_without_improvement = 0
+        patience_for_pruning = 3  # Prune after 3 consecutive folds without improvement
 
         with mlflow.start_run(run_name=f"trial_{trial.number}", nested=True):
             # Log trial parameters
@@ -485,11 +564,12 @@ def run_hpo_worker(config: DictConfig, n_trials: int, worker_id: Optional[int] =
                     model_name=config.model.model_name,
                 )
 
-                # Create dataloaders with trial batch size
+                # Create dataloaders with split batch sizes
                 train_loader, val_loader = create_dataloaders(
                     train_dataset,
                     val_dataset,
-                    batch_size=batch_size,
+                    train_batch_size=physical_batch,
+                    eval_batch_size=eval_batch_size,
                     num_workers=config.training.num_workers,
                     pin_memory=config.training.pin_memory,
                 )
@@ -499,6 +579,10 @@ def run_hpo_worker(config: DictConfig, n_trials: int, worker_id: Optional[int] =
                     model_name=config.model.model_name,
                     num_labels=config.model.num_labels,
                     freeze_backbone=config.model.freeze_backbone,
+                    classifier_dropout=classifier_dropout,
+                    hidden_dropout=hidden_dropout,
+                    attention_dropout=attention_dropout,
+                    focal_gamma=focal_gamma,
                 )
 
                 # Create optimizer with trial hyperparameters
@@ -510,7 +594,7 @@ def run_hpo_worker(config: DictConfig, n_trials: int, worker_id: Optional[int] =
                     weight_decay=weight_decay,
                     warmup_ratio=warmup_ratio,
                     use_fused=config.training.optimization.fused_adamw,
-                    gradient_accumulation_steps=config.training.gradient_accumulation_steps,
+                    gradient_accumulation_steps=grad_accum_steps,
                 )
 
                 # Create trainer
@@ -523,7 +607,7 @@ def run_hpo_worker(config: DictConfig, n_trials: int, worker_id: Optional[int] =
                     device=device,
                     use_bf16=config.training.optimization.use_bf16,
                     use_compile=config.training.optimization.use_torch_compile,
-                    gradient_accumulation_steps=config.training.gradient_accumulation_steps,
+                    gradient_accumulation_steps=grad_accum_steps,
                     max_grad_norm=config.training.max_grad_norm,
                     mlflow_enabled=False,  # Disable per-step logging during HPO
                     early_stopping_patience=config.training.early_stopping_patience,
@@ -540,10 +624,24 @@ def run_hpo_worker(config: DictConfig, n_trials: int, worker_id: Optional[int] =
                 # Report intermediate value for pruning
                 trial.report(fold_f1, fold)
 
-                # Prune if unpromising
+                # Patience-based pruning: Check if this fold improved over best
+                if fold_f1 > best_fold_score:
+                    best_fold_score = fold_f1
+                    folds_without_improvement = 0
+                else:
+                    folds_without_improvement += 1
+
+                # Prune if HyperbandPruner decides OR if patience exceeded
                 if trial.should_prune():
                     console.print(
-                        f"{worker_prefix}[yellow]⚠[/yellow] Trial {trial.number} pruned at fold {fold}"
+                        f"{worker_prefix}[yellow]⚠[/yellow] Trial {trial.number} pruned by Hyperband at fold {fold}"
+                    )
+                    raise optuna.TrialPruned()
+
+                if folds_without_improvement >= patience_for_pruning:
+                    console.print(
+                        f"{worker_prefix}[yellow]⚠[/yellow] Trial {trial.number} pruned by patience at fold {fold} "
+                        f"({folds_without_improvement} folds without improvement)"
                     )
                     raise optuna.TrialPruned()
 
@@ -560,10 +658,11 @@ def run_hpo_worker(config: DictConfig, n_trials: int, worker_id: Optional[int] =
         return mean_f1
 
     # Create Optuna study (load existing if available)
-    pruner = MedianPruner(
-        n_startup_trials=config.hpo.pruner.n_startup_trials,
-        n_warmup_steps=config.hpo.pruner.n_warmup_steps,
-        interval_steps=config.hpo.pruner.interval_steps,
+    pruner = HyperbandPruner(
+        min_resource=config.hpo.pruner.min_resource,
+        max_resource=config.hpo.pruner.max_resource,
+        reduction_factor=config.hpo.pruner.reduction_factor,
+        bootstrap_count=config.hpo.pruner.get("bootstrap_count", 10),
     )
 
     storage = _resolve_optuna_storage(config.hpo.storage)

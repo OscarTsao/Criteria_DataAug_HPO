@@ -10,10 +10,29 @@
 # ============================================================================
 
 # batch_size: Number of samples per training batch
-#   - Default: 8 (reranker backbone is memory intensive)
-#   - Larger = faster training but more memory (try 16)
-#   - Smaller = less memory but slower (try 4)
-batch_size: 8
+#   - Default: 16 (optimized for RTX 5090 24GB VRAM)
+#   - Larger = faster training but more memory (try 24)
+#   - Smaller = less memory but slower (try 8)
+batch_size: 16
+
+# auto_detect_batch_size: Automatically detect maximum safe batch size
+#   - true: Probe GPU VRAM and use maximum safe batch size
+#   - false: Use configured batch_size above (default)
+#   - When enabled, ignores batch_size config and uses VRAM detection
+auto_detect_batch_size: false
+
+# vram_headroom: Fraction of VRAM to reserve as safety headroom
+#   - Default: 0.10 (10% reserved for overhead)
+#   - Range: 0.05 to 0.20 (5% to 20%)
+#   - Higher = more conservative, lower OOM risk
+#   - Lower = larger batch sizes, higher OOM risk
+vram_headroom: 0.10
+
+# eval_batch_size: Batch size for evaluation (can be larger than training)
+#   - Default: auto (same as train batch size)
+#   - Can be larger since no gradients needed
+#   - Set to "auto" to use maximum safe batch size
+eval_batch_size: auto
 
 # learning_rate: AdamW learning rate for fine-tuning BGE reranker
 #   - Default: 1e-5 (stable for XLM-R large backbones)
