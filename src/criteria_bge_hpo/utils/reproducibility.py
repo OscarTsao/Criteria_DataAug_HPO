@@ -21,9 +21,13 @@ def set_seed(seed: int):
     console.print(f"[green]✓[/green] Set random seed: {seed}")
 
 
-def enable_deterministic(deterministic: bool = True, tf32: bool = True, enable_cudnn_benchmark: bool = True):
-    """Configure determinism and TF32 support according to config."""
-    # Force non-deterministic for speed
+def enable_deterministic(tf32: bool = True, enable_cudnn_benchmark: bool = True):
+    """Configure TF32 and cuDNN settings for performance.
+
+    Note: Deterministic algorithms are always DISABLED for performance.
+    Use set_seed() for reproducibility instead.
+    """
+    # Always disable deterministic algorithms for performance
     torch.use_deterministic_algorithms(False)
     console.print(
         "[yellow]Deterministic algorithms: DISABLED (performance optimized)[/yellow]"
@@ -100,7 +104,6 @@ def setup_reproducibility(
     """
     set_seed(seed)
     enable_deterministic(
-        deterministic=False,
         tf32=enable_tf32,
         enable_cudnn_benchmark=enable_cudnn_benchmark,
     )

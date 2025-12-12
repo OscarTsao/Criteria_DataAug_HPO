@@ -15,7 +15,7 @@ defaults:
   - model: bge_reranker   # Model architecture config (bge_reranker.yaml)
   - training: default     # Training hyperparameters (default.yaml)
   - augmentation: default # Evidence-span augmentation settings
-  - hpo: pc_ce            # HPO search space (pc_ce.yaml)
+  - hpo: optuna           # HPO search space (optuna.yaml - CLI-compatible)
   - _self_                # This file's settings override the above
 
 # ============================================================================
