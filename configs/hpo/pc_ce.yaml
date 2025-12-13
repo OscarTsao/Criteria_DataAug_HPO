@@ -8,6 +8,13 @@ storage: ${oc.env:OPTUNA_STORAGE,sqlite:///optuna.db}
 study_name: pc_ce_hpo
 direction: maximize
 
+# HPO Mode Configuration (Single-Split for Speed)
+hpo_mode:
+  mode: single_split          # single_split (recommended) or kfold
+  train_split: 0.8            # 80/20 train/val split
+  num_epochs: 40              # Epochs per trial (vs 100 for final training)
+  early_stopping_patience: 10 # Patience per trial (vs 20 for final training)
+
 pruner:
   type: HyperbandPruner
   min_resource: 1
