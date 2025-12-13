@@ -1,17 +1,18 @@
 #!/bin/bash
 # ============================================================================
-# Launch DeBERTa HPO Studies with Updated Settings
+# Launch DeBERTa HPO Studies with Single-Split Mode (10-15x Faster!)
 # ============================================================================
 # Launches 2 HPO studies for DeBERTa-v3-base:
 #   1. WITHOUT augmentation (baseline)
 #   2. WITH augmentation (searches aug params)
 #
 # All studies use:
-#   - 100 epochs per trial
-#   - Early stopping patience: 20
-#   - torch.compile: disabled (optimal for HPO)
+#   - Single-split mode (80/20 train/val split)
+#   - 40 epochs per trial (vs 100 for final training)
+#   - Early stopping patience: 10 (vs 20 for final training)
+#   - torch.compile: enabled (15% speedup)
 #   - 2000 trials with HyperbandPruner
-#   - 5-fold cross-validation per trial
+#   - Expected completion: ~6 days per study
 # ============================================================================
 
 set -e  # Exit on error
@@ -23,15 +24,16 @@ BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
 echo -e "${BLUE}============================================================================${NC}"
-echo -e "${BLUE}  DeBERTa HPO Launch - Updated Settings Applied${NC}"
+echo -e "${BLUE}  DeBERTa HPO Launch - Single-Split Mode (10-15x Faster!)${NC}"
 echo -e "${BLUE}============================================================================${NC}"
 echo ""
 echo -e "Configuration:"
-echo -e "  • Epochs: ${GREEN}100${NC} (with early stopping patience: ${GREEN}20${NC})"
-echo -e "  • torch.compile: ${YELLOW}disabled${NC} (optimal for HPO)"
+echo -e "  • HPO Mode: ${GREEN}single-split${NC} (80/20 train/val)"
+echo -e "  • Epochs: ${GREEN}40${NC} (with early stopping patience: ${GREEN}10${NC})"
+echo -e "  • torch.compile: ${GREEN}enabled${NC} (15% speedup)"
 echo -e "  • Trials: ${GREEN}2000${NC} per study"
 echo -e "  • Pruner: ${GREEN}HyperbandPruner${NC} (reduction_factor=4, bootstrap=30)"
-echo -e "  • K-folds: ${GREEN}5${NC}"
+echo -e "  • Expected Time: ${GREEN}~6 days${NC} per study"
 echo ""
 
 # ============================================================================
@@ -113,14 +115,20 @@ echo "  kill ${PID1}  # Stop deberta_base_no_aug"
 echo "  kill ${PID2}  # Stop deberta_base_aug"
 echo ""
 echo -e "${BLUE}Expected Runtime:${NC}"
-echo "  • ~4-6 hours per trial (avg with pruning)"
-echo "  • ~500-800 hours total per study (20-33 days)"
+echo "  • ~5 minutes per trial (avg with pruning)"
+echo "  • ~150 hours total per study (~6 days)"
 echo "  • Both studies run in parallel (same wall-clock time)"
+echo "  • 10-15x faster than old K-fold mode!"
+echo ""
+echo -e "${BLUE}After HPO Completes:${NC}"
+echo "  1. Extract best hyperparameters from study"
+echo "  2. Run K-fold training with best params for final validation"
+echo "  3. Deploy best model"
 echo ""
 echo -e "${YELLOW}⚠  WARNING: Multi-GPU conflict if both run simultaneously!${NC}"
 echo "  • Both studies will compete for GPU 0"
 echo "  • Consider running sequentially or using CUDA_VISIBLE_DEVICES"
 echo ""
-echo "Run Sequentially (alternative):"
+echo "Run Sequentially (recommended):"
 echo "  # Comment out Study 2 above, or manually launch after Study 1 completes"
 echo ""

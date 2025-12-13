@@ -36,6 +36,7 @@ from criteria_bge_hpo.training.kfold import (
     get_fold_statistics,
     display_fold_statistics,
 )
+from sklearn.model_selection import train_test_split
 from criteria_bge_hpo.training.trainer import Trainer, create_optimizer_and_scheduler
 from criteria_bge_hpo.evaluation.evaluator import (
     Evaluator,
@@ -112,6 +113,62 @@ def _resolve_optuna_storage(storage_uri: str) -> str:
         abs_path = hydra.utils.to_absolute_path(rel_path)
         return f"sqlite:///{abs_path}"
     return storage_uri
+
+
+def create_single_train_val_split(pairs_df, train_ratio=0.8, seed=42):
+    """
+    Create a single train/val split with post-level grouping to prevent data leakage.
+
+    Args:
+        pairs_df: DataFrame with post_id, criterion_id, and label columns
+        train_ratio: Fraction of data to use for training (default: 0.8)
+        seed: Random seed for reproducible splits
+
+    Returns:
+        tuple: (train_indices, val_indices)
+    """
+    # Get unique post IDs
+    unique_posts = pairs_df['post_id'].unique()
+
+    # Calculate labels per post for stratification
+    post_labels = pairs_df.groupby('post_id')['label'].apply(
+        lambda x: (x.sum() / len(x))  # Average label per post
+    )
+
+    # Create bins for stratification (0-25%, 25-50%, 50-75%, 75-100% positive labels)
+    bins = [0, 0.25, 0.5, 0.75, 1.0]
+    post_strata = np.digitize(post_labels, bins=bins)
+
+    # Split posts into train and val
+    try:
+        train_posts, val_posts = train_test_split(
+            unique_posts,
+            train_size=train_ratio,
+            random_state=seed,
+            stratify=post_strata
+        )
+    except ValueError:
+        # If stratification fails (too few samples), split without stratification
+        console.print("[yellow]⚠[/yellow] Stratification failed, using random split")
+        train_posts, val_posts = train_test_split(
+            unique_posts,
+            train_size=train_ratio,
+            random_state=seed
+        )
+
+    # Get indices for each set
+    train_idx = pairs_df[pairs_df['post_id'].isin(train_posts)].index.to_numpy()
+    val_idx = pairs_df[pairs_df['post_id'].isin(val_posts)].index.to_numpy()
+
+    # Log split statistics
+    train_pos = pairs_df.iloc[train_idx]['label'].sum()
+    val_pos = pairs_df.iloc[val_idx]['label'].sum()
+    console.print(f"[cyan]Single train/val split created:[/cyan]")
+    console.print(f"  Train: {len(train_idx)} samples ({train_pos} positive, {len(train_idx)-train_pos} negative)")
+    console.print(f"  Val: {len(val_idx)} samples ({val_pos} positive, {len(val_idx)-val_pos} negative)")
+    console.print(f"  Train posts: {len(train_posts)}, Val posts: {len(val_posts)}\n")
+
+    return train_idx, val_idx
 
 
 def run_single_fold(
@@ -451,8 +508,32 @@ def run_hpo_worker(config: DictConfig, n_trials: int, worker_id: Optional[int] =
     # Load data
     pairs_df = load_and_preprocess_data(config)
 
-    # Create K-fold splits (will be reused across trials)
-    splits = list(create_kfold_splits(pairs_df, n_splits=config.kfold.n_splits))
+    # Get HPO mode configuration
+    hpo_mode = config.hpo.get("hpo_mode", {})
+    mode = hpo_mode.get("mode", "kfold")  # Default to kfold for backward compatibility
+    train_split_ratio = hpo_mode.get("train_split", 0.8)
+    hpo_num_epochs = hpo_mode.get("num_epochs", config.training.num_epochs)
+    hpo_patience = hpo_mode.get("early_stopping_patience", config.training.early_stopping_patience)
+
+    console.print(f"[bold cyan]HPO Mode: {mode.upper()}[/bold cyan]")
+    if mode == "single_split":
+        console.print(f"  Train/Val Split: {train_split_ratio:.0%}/{1-train_split_ratio:.0%}")
+        console.print(f"  HPO Epochs: {hpo_num_epochs} (patience: {hpo_patience})")
+        console.print(f"[yellow]  Note: Final model should use K-fold with best hyperparameters[/yellow]\n")
+
+        # Create single train/val split (reused across all trials)
+        train_idx, val_idx = create_single_train_val_split(
+            pairs_df,
+            train_ratio=train_split_ratio,
+            seed=config.seed
+        )
+        splits = [(train_idx, val_idx)]  # Single split wrapped as list for compatibility
+    else:
+        console.print(f"  K-Fold Splits: {config.kfold.n_splits}")
+        console.print(f"  Epochs per fold: {hpo_num_epochs} (patience: {hpo_patience})\n")
+
+        # Create K-fold splits (will be reused across trials)
+        splits = list(create_kfold_splits(pairs_df, n_splits=config.kfold.n_splits))
 
     # Load tokenizer
     tokenizer = AutoTokenizer.from_pretrained(config.model.model_name)
@@ -547,17 +628,20 @@ def run_hpo_worker(config: DictConfig, n_trials: int, worker_id: Optional[int] =
         else:
             augmentation_cfg = None
 
-        num_epochs = config.training.num_epochs
+        # Use HPO-specific epochs and patience
+        num_epochs = hpo_num_epochs
 
         console.print(f"\n{worker_prefix}[bold magenta]Trial {trial.number}[/bold magenta]")
         console.print(f"  LR: {learning_rate:.2e}, Effective BS: {target_effective_batch_size} (Physical: {physical_batch_size}, Accum: {gradient_accumulation_steps})")
         console.print(f"  Scheduler: {scheduler_type}, WD: {weight_decay:.2e}, Warmup: {warmup_ratio:.3f}")
+        console.print(f"  Epochs: {num_epochs}, Patience: {hpo_patience}")
 
-        # Run K-fold CV with sampled hyperparameters
+        # Run evaluation with sampled hyperparameters
         fold_scores = []
         best_fold_f1 = 0.0
         folds_without_improvement = 0
-        patience_for_pruning = 3  # Prune after 3 consecutive folds without improvement
+        # Pruning patience: 3 for kfold (3 consecutive folds), N/A for single_split
+        patience_for_pruning = 3 if mode == "kfold" else None
 
         with mlflow.start_run(run_name=f"trial_{trial.number}", nested=True):
             # Log trial parameters
@@ -611,7 +695,7 @@ def run_hpo_worker(config: DictConfig, n_trials: int, worker_id: Optional[int] =
                     scheduler_type=scheduler_type,
                 )
 
-                # Create trainer
+                # Create trainer with HPO-specific patience
                 trainer = Trainer(
                     model=model,
                     train_loader=train_loader,
@@ -624,7 +708,7 @@ def run_hpo_worker(config: DictConfig, n_trials: int, worker_id: Optional[int] =
                     gradient_accumulation_steps=gradient_accumulation_steps,
                     max_grad_norm=config.training.max_grad_norm,
                     mlflow_enabled=False,  # Disable per-step logging during HPO
-                    early_stopping_patience=config.training.early_stopping_patience,
+                    early_stopping_patience=hpo_patience,  # Use HPO-specific patience
                     positive_threshold=config.model.positive_threshold,
                 )
 
@@ -648,39 +732,47 @@ def run_hpo_worker(config: DictConfig, n_trials: int, worker_id: Optional[int] =
                 fold_f1 = trainer.best_val_f1
                 fold_scores.append(fold_f1)
 
-                # Update patience tracking
-                if fold_f1 > best_fold_f1:
-                    best_fold_f1 = fold_f1
-                    folds_without_improvement = 0
-                else:
-                    folds_without_improvement += 1
+                # Update patience tracking (only for K-fold mode)
+                if mode == "kfold":
+                    if fold_f1 > best_fold_f1:
+                        best_fold_f1 = fold_f1
+                        folds_without_improvement = 0
+                    else:
+                        folds_without_improvement += 1
 
                 # Report intermediate value for pruning
                 trial.report(fold_f1, fold)
 
-                # Prune by patience (consecutive folds without improvement)
-                if folds_without_improvement >= patience_for_pruning:
-                    console.print(
-                        f"{worker_prefix}[yellow]⚠[/yellow] Trial {trial.number} pruned by patience at fold {fold} ({patience_for_pruning} folds without improvement)"
-                    )
-                    raise optuna.TrialPruned()
+                # Prune by patience (consecutive folds without improvement) - K-fold only
+                if mode == "kfold" and patience_for_pruning is not None:
+                    if folds_without_improvement >= patience_for_pruning:
+                        console.print(
+                            f"{worker_prefix}[yellow]⚠[/yellow] Trial {trial.number} pruned by patience at fold {fold} ({patience_for_pruning} folds without improvement)"
+                        )
+                        raise optuna.TrialPruned()
 
                 # Prune by HyperbandPruner if unpromising
                 if trial.should_prune():
+                    prune_reason = "Hyperband" if mode == "kfold" else "Hyperband (early stopping)"
                     console.print(
-                        f"{worker_prefix}[yellow]⚠[/yellow] Trial {trial.number} pruned by Hyperband at fold {fold}"
+                        f"{worker_prefix}[yellow]⚠[/yellow] Trial {trial.number} pruned by {prune_reason} at fold {fold}"
                     )
                     raise optuna.TrialPruned()
 
-            # Calculate mean F1 across folds
+            # Calculate mean F1 across folds (or single split)
             mean_f1 = np.mean(fold_scores)
             std_f1 = np.std(fold_scores)
 
             # Log results
             mlflow.log_metric("mean_f1", mean_f1)
             mlflow.log_metric("std_f1", std_f1)
+            mlflow.log_param("hpo_mode", mode)
+            mlflow.log_param("hpo_num_epochs", num_epochs)
 
-            console.print(f"{worker_prefix}  Mean F1: {mean_f1:.4f} ± {std_f1:.4f}")
+            if mode == "single_split":
+                console.print(f"{worker_prefix}  Val F1: {mean_f1:.4f}")
+            else:
+                console.print(f"{worker_prefix}  Mean F1: {mean_f1:.4f} ± {std_f1:.4f}")
 
         return mean_f1
 

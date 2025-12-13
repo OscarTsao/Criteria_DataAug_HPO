@@ -42,6 +42,39 @@ study_name: project_hpo
 direction: maximize
 
 # ============================================================================
+# HPO MODE CONFIGURATION
+# ============================================================================
+# Controls how HPO evaluates each trial (single-split vs K-fold)
+hpo_mode:
+  # mode: Validation strategy during HPO
+  #   - single_split: Use single train/val split (MUCH FASTER, ~10-15x speedup)
+  #     * Best for: Initial hyperparameter search
+  #     * Speed: Each trial completes in minutes instead of hours
+  #     * After HPO: Run final K-fold training with best hyperparameters
+  #   - kfold: Use full K-fold cross-validation (SLOWER, more reliable)
+  #     * Best for: Final validation, small search spaces
+  #     * Speed: Each trial takes hours (5 folds × many epochs)
+  mode: single_split  # single_split (recommended for 2000 trials) or kfold
+
+  # train_split: Train/val split ratio for single_split mode
+  #   - Default: 0.8 (80% train, 20% val)
+  #   - Post-level grouping maintained to prevent leakage
+  #   - Stratified by label distribution
+  train_split: 0.8
+
+  # num_epochs: Number of epochs for HPO trials (overrides training.num_epochs during HPO)
+  #   - single_split: 30-50 epochs sufficient (focus on finding good params quickly)
+  #   - kfold: 100 epochs (full training for reliable comparison)
+  #   - Lower epochs during HPO = faster iteration, more trials explored
+  num_epochs: 40
+
+  # early_stopping_patience: Early stopping patience during HPO
+  #   - single_split: 10 epochs (stop bad trials quickly)
+  #   - kfold: 20 epochs (more conservative for reliable results)
+  #   - Lower patience = faster pruning of bad hyperparameters
+  early_stopping_patience: 10
+
+# ============================================================================
 # PRUNING CONFIGURATION
 # ============================================================================
 # Early stopping for unpromising trials to save computation time

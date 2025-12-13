@@ -75,16 +75,39 @@ The CLI (`cli.py`) orchestrates the full training pipeline:
 
 ### Hyperparameter Optimization
 
-Optuna with MedianPruner for early stopping. Each study targets 500 trials by default and stores results in `optuna.db` (SQLite). The search space is defined in `configs/hpo/optuna.yaml` and includes:
+Optuna with HyperbandPruner for early stopping. Each study targets 2000 trials by default and stores results in `optuna.db` (SQLite). The search space is defined in `configs/hpo/optuna.yaml`.
 
-- `target_effective_batch_size` (categorical: 32, 64, 128) - Effective batch size after gradient accumulation
-- `scheduler_type` (categorical: linear, cosine, cosine_with_restarts) - Learning rate scheduler
-- learning_rate (loguniform)
-- dropout (uniform)
-- weight_decay (loguniform)
-- warmup_ratio (uniform)
+**NEW: Two HPO Modes Available (2025-12-13)**
 
-HPO runs 100-epoch K-fold CV (patience 20) to stay aligned with full-training defaults.
+1. **Single-Split Mode** (Recommended, 10-15x faster)
+   - Uses single 80/20 train/val split per trial
+   - 40 epochs with patience 10 (vs 100/20 for final training)
+   - **~6 days for 2000 trials** (vs 27 days with K-fold)
+   - Perfect for large-scale hyperparameter search
+   - Post-level grouping prevents data leakage
+
+2. **K-Fold Mode** (Legacy, for final validation)
+   - 5-fold cross-validation per trial
+   - 100 epochs with patience 20
+   - ~27 days for 2000 trials
+   - Use for final model validation with best hyperparameters
+
+**Recommended Workflow:**
+1. Run HPO with single-split mode (fast search)
+2. Extract top-5 configurations
+3. Run K-fold training with best params (robust validation)
+
+See `HPO_MODES.md` for detailed comparison and usage guide.
+
+**Search Space:**
+- `target_effective_batch_size` (categorical: 16, 32, 64, 128, 256)
+- `scheduler_type` (categorical: linear, cosine, cosine_with_restarts)
+- learning_rate (loguniform: 1e-6 to 5e-5)
+- weight_decay (uniform: 0.0 to 0.1)
+- warmup_ratio (uniform: 0.0 to 0.2)
+- dropout parameters (classifier, hidden, attention)
+- focal_gamma (categorical: 1.0, 2.0, 3.0)
+- augmentation parameters (when enabled)
 
 **Note:** The legacy `batch_size` parameter has been replaced by `target_effective_batch_size` to support dynamic batch sizing with gradient accumulation.
 

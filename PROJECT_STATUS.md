@@ -40,6 +40,48 @@ python3 tools/monitor_hpo.py
 
 ---
 
+## 🚀 NEW: Single-Split HPO Mode (10-15x Faster)
+
+**Latest Enhancement:** The HPO system now supports two modes for hyperparameter search:
+
+### HPO Mode Comparison
+
+| Feature | Single-Split Mode | K-Fold Mode |
+|---------|------------------|-------------|
+| **Speed** | ⚡ **10-15x faster** | Slower (baseline) |
+| **Validation** | Single 80/20 split | 5-fold cross-validation |
+| **Epochs/Trial** | 40 (configurable) | 100 (configurable) |
+| **Early Stopping** | Patience 10 | Patience 20 |
+| **Best For** | Initial HPO search | Final validation |
+| **Trial Time** | ~5-10 minutes | ~60-90 minutes |
+| **Recommended For** | 2000-trial studies | Small search spaces |
+
+### When to Use Each Mode
+
+**Single-Split Mode** (Default for 2000 trials):
+- ✅ Fast hyperparameter exploration
+- ✅ Large search spaces (1000+ trials)
+- ✅ Budget-constrained experimentation
+- ⚠️ After HPO: Run final training with K-fold using best params
+
+**K-Fold Mode** (For final validation):
+- ✅ Reliable performance estimation
+- ✅ Small search spaces (<200 trials)
+- ✅ Final model selection
+- ⚠️ Much slower, use sparingly
+
+### Configuration
+
+Set the mode in `configs/hpo/optuna.yaml`:
+
+```yaml
+hpo_mode:
+  mode: single_split  # or kfold
+  train_split: 0.8     # 80/20 train/val split
+  num_epochs: 40       # Epochs for HPO trials
+  early_stopping_patience: 10  # Patience for HPO
+```
+
 ## 📊 Current Configuration
 
 ### Training Settings (✅ Optimized)
@@ -92,19 +134,35 @@ python3 tools/monitor_hpo.py
 
 ### Per-Trial Performance
 
+**Single-Split Mode (RECOMMENDED):**
 | Phase | Duration | Notes |
 |-------|----------|-------|
-| **Bootstrap (30 trials)** | ~10h each | Full 100 epochs, no pruning |
+| **Bootstrap (30 trials)** | ~6-8 min each | 40 epochs, single split, no pruning |
+| **Pruned trials (1970)** | ~3-5 min each | Avg 10-15 epochs before pruning |
+| **Compilation overhead** | 60s per trial | Amortized across epochs |
+
+**K-Fold Mode (Legacy):**
+| Phase | Duration | Notes |
+|-------|----------|-------|
+| **Bootstrap (30 trials)** | ~10h each | 100 epochs × 5 folds, no pruning |
 | **Pruned trials (1970)** | ~2-4h each | Avg 15 epochs before pruning |
 | **Compilation overhead** | 60s per trial | Amortized across epochs |
 
 ### Total HPO Runtime
 
-| Metric | Baseline (95%) | Optimized (98%) | Improvement |
-|--------|---------------|-----------------|-------------|
-| **Single study** | 800 hours (33 days) | **640 hours (27 days)** | **20% faster** |
-| **Both studies (parallel)** | 33 days | **27 days** | Same wall-clock |
-| **Both studies (sequential)** | 66 days | **54 days** | 12 days saved |
+**Single-Split Mode (98% optimization + single-split):**
+| Metric | Time | Completion Date |
+|--------|------|----------------|
+| **2000 trials** | **~150 hours (6.3 days)** | **~Dec 19, 2025** |
+| **4000 trials** | **~300 hours (12.5 days)** | **~Dec 25, 2025** |
+
+**K-Fold Mode (98% optimization + 5-fold CV):**
+| Metric | Time | Completion Date |
+|--------|------|----------------|
+| **2000 trials** | ~640 hours (27 days) | ~Jan 9, 2026 |
+| **Single study** | 800 hours (33 days) | Jan 15, 2026 |
+
+**Speedup:** Single-split mode is ~10-15x faster than K-fold mode!
 
 ---
 
@@ -170,7 +228,27 @@ python3 tools/monitor_hpo.py
 
 ## ✅ Recent Improvements (2025-12-13)
 
-### Optimization Enhancements
+### MAJOR: Single-Split HPO Mode (10-15x Speedup) 🚀
+
+1. **Single-Split Validation Strategy**
+   - Previous: Every HPO trial ran 5-fold CV (100 epochs × 5 = 500 epoch-equiv)
+   - Current: HPO uses single 80/20 split (40 epochs × 1 = 40 epoch-equiv)
+   - Impact: **~12x faster HPO** (6 days instead of 27 days for 2000 trials)
+   - Post-level grouping maintained to prevent data leakage
+   - Stratified splits ensure balanced label distribution
+
+2. **Configurable HPO Modes**
+   - Added `hpo_mode` configuration in `configs/hpo/optuna.yaml`
+   - Two modes: `single_split` (recommended) and `kfold` (legacy)
+   - Mode-specific parameters: epochs, patience, train_split ratio
+   - Automatic pruning adaptation for each mode
+
+3. **Workflow Optimization**
+   - HPO Phase: Use single-split mode for fast hyperparameter search
+   - Final Training: Use K-fold with best hyperparameters for robust validation
+   - Best of both worlds: Speed during search, reliability for final model
+
+### Previous Optimization Enhancements
 
 1. **torch.compile Enabled for HPO** (15% speedup)
    - Previous: Disabled due to misunderstanding of cost/benefit
@@ -196,8 +274,9 @@ python3 tools/monitor_hpo.py
    - Cleaner root directory
 
 2. **Configuration Verified**
-   - 100 epochs ✓
-   - Patience 20 ✓
+   - 100 epochs for final training ✓
+   - 40 epochs for HPO trials ✓
+   - Single-split mode enabled ✓
    - All optimizations enabled ✓
    - Augmentation search space defined ✓
 
