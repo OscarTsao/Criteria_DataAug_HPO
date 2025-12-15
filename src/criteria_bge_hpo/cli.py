@@ -86,7 +86,7 @@ def detect_physical_batch_size_for_training(config, device):
         tokenizer=tokenizer,
         max_length=config.data.max_length,
         device=device,
-        safety_margin=0.9,
+        safety_margin=0.98,  # Optimized for RTX 5090 32GB VRAM
     )
 
     # Clean up
@@ -319,7 +319,7 @@ def run_kfold_training(config: DictConfig):
 
     # Set up reproducibility
     set_seed(config.seed)
-    enable_deterministic(config.reproducibility.deterministic, config.reproducibility.tf32)
+    enable_deterministic(tf32=config.reproducibility.tf32)
 
     # Verify CUDA
     verify_cuda_setup()
@@ -502,7 +502,7 @@ def run_hpo_worker(config: DictConfig, n_trials: int, worker_id: Optional[int] =
 
     # Set up reproducibility
     set_seed(config.seed)
-    enable_deterministic(config.reproducibility.deterministic, config.reproducibility.tf32)
+    enable_deterministic(tf32=config.reproducibility.tf32)
     device = get_device()
 
     # Load data
@@ -695,7 +695,7 @@ def run_hpo_worker(config: DictConfig, n_trials: int, worker_id: Optional[int] =
                     scheduler_type=scheduler_type,
                 )
 
-                # Create trainer with HPO-specific patience
+                # Create trainer with HPO-specific patience and Optuna trial for epoch-level pruning
                 trainer = Trainer(
                     model=model,
                     train_loader=train_loader,
@@ -710,6 +710,8 @@ def run_hpo_worker(config: DictConfig, n_trials: int, worker_id: Optional[int] =
                     mlflow_enabled=False,  # Disable per-step logging during HPO
                     early_stopping_patience=hpo_patience,  # Use HPO-specific patience
                     positive_threshold=config.model.positive_threshold,
+                    optuna_trial=trial if mode == "single_split" else None,  # Enable epoch-level pruning for single-split
+                    report_interval=5,  # Report every 5 epochs for HyperbandPruner
                 )
 
                 # Train with configured epochs (HPO will control runtime via trials/early stopping)

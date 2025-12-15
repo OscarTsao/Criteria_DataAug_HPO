@@ -10,11 +10,11 @@
 # ============================================================================
 
 # batch_size: Number of samples per training batch
-#   - Default: 16 (optimized for 24GB VRAM GPUs)
-#   - Larger = faster training but more memory (try 24)
-#   - Smaller = less memory but slower (try 8)
+#   - Default: 24 (optimized for 32GB VRAM - RTX 5090)
+#   - Larger = faster training but more memory (try 32)
+#   - Smaller = less memory but slower (try 16)
 #   - During HPO, batch size is auto-detected and gradient accumulation is used
-batch_size: 16
+batch_size: 24
 
 # learning_rate: AdamW learning rate for fine-tuning BGE reranker
 #   - Default: 1e-5 (stable for XLM-R large backbones)
@@ -45,9 +45,10 @@ early_stopping_patience: 20
 weight_decay: 0.01
 
 # ============================================================================
-# GPU OPTIMIZATION SETTINGS (RTX 5090 SPECIFIC)
+# GPU OPTIMIZATION SETTINGS (RTX 5090 - 32GB VRAM)
 # ============================================================================
-# These settings provide 3-5x overall speedup on Ampere+ GPUs
+# These settings provide 3-5x overall speedup on Ada Lovelace / Ampere+ GPUs
+# Optimized for RTX 5090 (compute capability 12.0, 32GB VRAM)
 # Disable all if training on CPU or older GPUs
 optimization:
   # use_bf16: Enable bfloat16 mixed precision training
