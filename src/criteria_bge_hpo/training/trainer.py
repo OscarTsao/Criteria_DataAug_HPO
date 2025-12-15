@@ -103,8 +103,15 @@ class Trainer:
         early_stopping_patience=None,
         checkpoint_dir=None,
         positive_threshold: float = 0.5,
+        optuna_trial=None,
+        report_interval=5,
     ):
-        """Initialize trainer."""
+        """Initialize trainer.
+
+        Args:
+            optuna_trial: Optuna trial object for intermediate reporting (optional)
+            report_interval: Report to Optuna every N epochs (default: 5)
+        """
         self.model = model
         self.train_loader = train_loader
         self.val_loader = val_loader
@@ -115,6 +122,8 @@ class Trainer:
         self.gradient_accumulation_steps = gradient_accumulation_steps
         self.max_grad_norm = max_grad_norm
         self.mlflow_enabled = mlflow_enabled
+        self.optuna_trial = optuna_trial
+        self.report_interval = report_interval
         self.early_stopping_patience = early_stopping_patience
         self.checkpoint_dir = checkpoint_dir
         self.best_epoch = 0
@@ -203,6 +212,20 @@ class Trainer:
                             )
                 else:
                     epochs_without_improvement += 1
+
+                # Report to Optuna for HyperbandPruner (epoch-level pruning)
+                if self.optuna_trial is not None and epoch % self.report_interval == 0:
+                    # Report current best F1 (not just current epoch F1)
+                    self.optuna_trial.report(self.best_val_f1, epoch)
+
+                    # Check if trial should be pruned
+                    if self.optuna_trial.should_prune():
+                        import optuna
+                        tqdm.write(
+                            f"[Optuna] Trial {self.optuna_trial.number} pruned by HyperbandPruner at epoch {epoch} "
+                            f"(best F1: {self.best_val_f1:.4f})"
+                        )
+                        raise optuna.TrialPruned()
 
                 if (
                     patience is not None

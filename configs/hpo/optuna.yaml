@@ -84,21 +84,23 @@ pruner:
   #   - More efficient than MedianPruner for large trial counts (2000+)
   type: HyperbandPruner
 
-  # min_resource: Minimum number of folds before first pruning check
-  #   - Default: 1 (can prune after first fold)
+  # min_resource: Minimum resource before first pruning check
+  #   - For single_split mode: Minimum epochs (e.g., 5 epochs)
+  #   - For kfold mode: Minimum folds (e.g., 1 fold)
   #   - Aggressive early stopping for unpromising trials
-  min_resource: 1
+  min_resource: 5
 
-  # max_resource: Maximum number of folds (K in K-fold CV)
-  #   - Default: 5 (5-fold cross-validation)
-  #   - Top trials complete all 5 folds
-  max_resource: 5
+  # max_resource: Maximum resource allocation
+  #   - For single_split mode: Max epochs (40 epochs as per hpo_mode.num_epochs)
+  #   - For kfold mode: Max folds (5 folds as per kfold.n_splits)
+  #   - Top trials get full resource allocation
+  max_resource: 40
 
   # reduction_factor: Successive halving reduction factor (eta)
-  #   - Default: 4 (keep top 1/4 of trials at each stage)
-  #   - Aggressive pruning for 2000-trial optimization
-  #   - Higher = faster elimination, lower = more conservative
-  reduction_factor: 4
+  #   - Default: 3 (keep top 1/3 of trials at each stage)
+  #   - Stages: 5 epochs -> 10 epochs -> 20 epochs -> 40 epochs
+  #   - Balanced pruning for epoch-level optimization
+  reduction_factor: 3
 
   # bootstrap_count: Number of trials before pruning starts
   #   - Default: 30 (gather sufficient baseline for 2000 trials)
